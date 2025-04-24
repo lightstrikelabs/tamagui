@@ -11,7 +11,11 @@ export function tamaguiPlugin({
   optimize,
   disableResolveConfig,
   ...tamaguiOptionsIn
-}: TamaguiOptions & { optimize?: boolean; disableResolveConfig?: boolean } = {}):
+}: TamaguiOptions & { 
+  optimize?: boolean; 
+  disableResolveConfig?: boolean 
+  disableThemesBundleOptimize?: boolean 
+} = {}):
   | Plugin
   | Plugin[] {
   const shouldAddCompiler = !!optimize
@@ -79,12 +83,22 @@ export function tamaguiPlugin({
           })
         }
       },
-
       async config(_, env) {
         await load()
 
         if (!tamaguiOptions) {
           throw new Error(`No options loaded`)
+        }
+        
+        const isThemeBundleOptimized = () => {
+          const isProdEnv = env.mode === 'production'
+          if(isProdEnv && !tamaguiOptionsIn.disableThemesBundleOptimize) {
+            return false
+          } else if (isProdEnv) {
+            return true
+          } else {
+            return false
+          }
         }
 
         return {
@@ -106,9 +120,7 @@ export function tamaguiPlugin({
             'process.env.ENABLE_RSC': JSON.stringify(process.env.ENABLE_RSC || ''),
             'process.env.ENABLE_STEPS': JSON.stringify(process.env.ENABLE_STEPS || ''),
             'process.env.IS_STATIC': JSON.stringify(false),
-            ...(env.mode === 'production' && {
-              'process.env.TAMAGUI_OPTIMIZE_THEMES': JSON.stringify(true),
-            }),
+            'process.env.TAMAGUI_OPTIMIZE_THEMES': JSON.stringify(isThemeBundleOptimized),
           },
           resolve:
             disableResolveConfig || enableNativeEnv
