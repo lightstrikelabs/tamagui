@@ -1,17 +1,13 @@
 import React from 'react'
 import type { UseFloatingOptions } from '@floating-ui/react'
-import {
-  safePolygon,
-  useFloating,
-  useFocus,
-  useHover,
-  useInteractions,
-  useRole,
-} from '@floating-ui/react'
+import { useFloating, useFocus, useInteractions, useRole } from '@floating-ui/react'
 
-// Custom floating context to override the Popper on web
-// Note: dismiss handling (ESC, outside click) is done by Tamagui's Dismissable
-// so it participates in the shared layer system with Dialog
+// custom floating context for hoverable popovers.
+// replaces floating-ui's useHover + safePolygon with simple timer-based hover.
+// a close delay (min 100ms) acts as a "safe bridge" between trigger and content,
+// replacing the complex polygon math with something that works just as well.
+// this also natively handles multi-trigger switching and restMs.
+
 export const useFloatingContext = ({
   open,
   setOpen,
@@ -23,14 +19,14 @@ export const useFloatingContext = ({
 
   return React.useCallback(
     (props: UseFloatingOptions) => {
-      // tracks whether pointer is currently over any trigger element.
-      // while true, suppress hover-initiated closes (safePolygon/mouseleave)
-      // so the popover stays open during multi-trigger switching.
-      const onTriggerRef = React.useRef(false)
+      const openTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+      const closeTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
       const restTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
 
       React.useEffect(() => {
         return () => {
+          clearTimeout(openTimerRef.current)
+          clearTimeout(closeTimerRef.current)
           clearTimeout(restTimerRef.current)
         }
       }, [])
@@ -39,14 +35,6 @@ export const useFloatingContext = ({
         ...props,
         open,
         onOpenChange: (val, event) => {
-          // suppress hover closes while pointer is on a trigger
-          if (
-            !val &&
-            onTriggerRef.current &&
-            (event?.type === 'mousemove' || event?.type === 'mouseleave')
-          ) {
-            return
-          }
           const type =
             event?.type === 'mousemove' ||
             event?.type === 'mouseenter' ||
@@ -56,60 +44,75 @@ export const useFloatingContext = ({
           setOpen(val, type)
         },
       }) as any
+
       const { getReferenceProps, getFloatingProps } = useInteractions([
-        hoverable
-          ? useHover(floating.context, {
-              enabled: !disable && hoverable,
-              handleClose: safePolygon({
-                requireIntent: true,
-                blockPointerEvents: false,
-                buffer: 1,
-              }),
-              ...(hoverable && typeof hoverable === 'object' && hoverable),
-            })
-          : useHover(floating.context, {
-              enabled: false,
-            }),
         useFocus(floating.context, {
           enabled: !disable && !disableFocus,
           visibleOnly: true,
         }),
         useRole(floating.context, { role: 'dialog' }),
       ])
+
+      // parse hoverable config
+      const delay = hoverable && typeof hoverable === 'object' ? hoverable.delay : 0
+      const restMs = hoverable && typeof hoverable === 'object' ? hoverable.restMs : 0
+      const openDelay = typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
+      const closeDelay = typeof delay === 'number' ? delay : ((delay as any)?.close ?? 0)
+      // minimum 100ms close delay acts as safe bridge between trigger and content
+      const effectiveCloseDelay = hoverable ? Math.max(closeDelay, 100) : 0
+
+      const doClose = () => {
+        clearTimeout(openTimerRef.current)
+        clearTimeout(restTimerRef.current)
+        if (effectiveCloseDelay > 0) {
+          closeTimerRef.current = setTimeout(() => {
+            setOpen(false, 'hover')
+          }, effectiveCloseDelay)
+        } else {
+          setOpen(false, 'hover')
+        }
+      }
+
       return {
         ...floating,
         open,
         getReferenceProps,
-        getFloatingProps,
-        // multi-trigger: useHover attaches DOM mouseenter listeners via useEffect.
-        // when PopperAnchor switches the reference on hover, the event fires
-        // before the listener is attached. this opens immediately for non-delay
-        // hoverable. delay case is handled by a synthetic mouseenter dispatch
-        // in PopperAnchor that lets useHover process it natively.
+        getFloatingProps: hoverable
+          ? (props: any) =>
+              getFloatingProps({
+                ...props,
+                onMouseEnter: () => {
+                  clearTimeout(closeTimerRef.current)
+                },
+                onMouseLeave: () => {
+                  doClose()
+                },
+              })
+          : getFloatingProps,
+
         onHoverReference: hoverable
-          ? (event: any) => {
-              onTriggerRef.current = true
+          ? (_event: any) => {
+              clearTimeout(closeTimerRef.current)
               if (open) return
-              const delay = typeof hoverable === 'object' ? hoverable.delay : 0
-              const restMs = typeof hoverable === 'object' ? hoverable.restMs : 0
-              const openDelay =
-                typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
-              if (!openDelay && !restMs) {
-                floating.context.onOpenChange(true, event, 'hover')
-              } else if (restMs && !openDelay) {
-                // floating-ui's restMs won't fire on synthetic mouseenter,
-                // so we handle it ourselves for multi-trigger popovers
+              if (restMs && !openDelay) {
                 clearTimeout(restTimerRef.current)
                 restTimerRef.current = setTimeout(() => {
-                  floating.context.onOpenChange(true, event, 'hover')
+                  setOpen(true, 'hover')
                 }, restMs)
+              } else if (openDelay) {
+                clearTimeout(openTimerRef.current)
+                openTimerRef.current = setTimeout(() => {
+                  setOpen(true, 'hover')
+                }, openDelay)
+              } else {
+                setOpen(true, 'hover')
               }
             }
           : undefined,
+
         onLeaveReference: hoverable
           ? () => {
-              onTriggerRef.current = false
-              clearTimeout(restTimerRef.current)
+              doClose()
             }
           : undefined,
       }

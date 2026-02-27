@@ -520,18 +520,7 @@ export const PopperAnchor = YStack.styleable<PopperAnchorExtraProps>(
 
               refProps.onPointerEnter?.(e)
               update()
-
-              // useHover attaches DOM mouseenter listeners via useEffect which
-              // runs after paint. since we just switched the reference element,
-              // the real mouseenter fired before the listener was attached.
-              // onHoverReference opens immediately for non-delay hoverable.
-              // the synthetic mouseenter syncs useHover internal state and
-              // handles the delay case natively.
               context.onHoverReference?.(e.nativeEvent)
-              const el = ref.current
-              setTimeout(() => {
-                el?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
-              }, 0)
             }
           },
           onMouseLeave: (e) => {
