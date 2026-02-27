@@ -121,11 +121,10 @@ test('direction: exiting content slides opposite to entering content', async ({
   // now hover tab D (to the right) - tab A should exit LEFT, tab D enters from RIGHT
   await hoverTab(page, 'tab-tab-d')
 
-  // wait a frame then check all slide-content elements
-  await page.waitForTimeout(50)
+  // wait for entering element to appear (may take longer in slow CI)
+  await page.waitForTimeout(150)
   const infos = await getSlideContentInfo(page)
 
-  // there should be 2 elements (entering + exiting) or 1 if exit already completed
   // the entering one should have data-tab="Tab D"
   const entering = infos.find((i: any) => i.tab === 'Tab D')
   expect(entering).toBeTruthy()

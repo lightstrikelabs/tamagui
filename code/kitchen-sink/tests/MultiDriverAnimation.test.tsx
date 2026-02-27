@@ -82,32 +82,37 @@ test.describe('Multi-driver animation config', () => {
   })
 
   test('no animatedBy defaults to motion driver', async ({ page }) => {
-    const element = page.getByTestId('driver-none')
-
-    const initialOpacity = await element.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
+    const initialOpacity = await page
+      .getByTestId('driver-none')
+      .evaluate((el) => Number(getComputedStyle(el).opacity))
     expect(initialOpacity).toBeCloseTo(0.3, 1)
 
-    // trigger animation
-    await page.getByTestId('toggle-multi').click()
+    // poll via rAF to capture intermediate values reliably in slow CI
+    const samples: number[] = await page.evaluate(() => {
+      return new Promise<number[]>((resolve) => {
+        const el = document.querySelector('[data-testid="driver-none"]')!
+        const vals: number[] = []
+        const start = performance.now()
+        function tick() {
+          vals.push(Number(getComputedStyle(el).opacity))
+          if (performance.now() - start < 500) requestAnimationFrame(tick)
+          else resolve(vals)
+        }
+        ;(document.querySelector('[data-testid="toggle-multi"]') as HTMLElement).click()
+        requestAnimationFrame(tick)
+      })
+    })
 
-    // should behave same as animatedBy="default" (motion)
-    await page.waitForTimeout(50)
-    const midOpacity = await element.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
-    await page.waitForTimeout(300)
-    const finalOpacity = await element.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
+    const finalOpacity = samples[samples.length - 1]
     expect(finalOpacity).toBeGreaterThan(0.9)
-    const didAnimate = midOpacity < 0.95 && midOpacity > 0.3
-    expect(didAnimate, `Default should use motion (mid=${midOpacity.toFixed(2)})`).toBe(
-      true
-    )
+    const hasIntermediate = samples.some((v) => v > 0.3 + 0.05 && v < 0.95)
+    expect(
+      hasIntermediate,
+      `Default should use motion (samples: [${samples
+        .slice(0, 5)
+        .map((s) => s.toFixed(2))
+        .join(', ')}...])`
+    ).toBe(true)
   })
 
   test('different drivers produce different animation behavior', async ({ page }) => {

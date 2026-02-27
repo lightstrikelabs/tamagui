@@ -13,20 +13,6 @@ import { setupPage } from './test-utils'
 
 const TOLERANCE = 0.05
 
-function isIntermediate(
-  value: number,
-  start: number,
-  end: number,
-  tolerance = TOLERANCE
-): boolean {
-  const notAtStart = Math.abs(value - start) > tolerance
-  const notAtEnd = Math.abs(value - end) > tolerance
-  const min = Math.min(start, end)
-  const max = Math.max(start, end)
-  const inRange = value >= min - tolerance && value <= max + tolerance
-  return notAtStart && notAtEnd && inRange
-}
-
 test.describe('animatedBy prop', () => {
   // Skip native driver - it doesn't work on web
   test.beforeEach(async ({ page }, testInfo) => {
@@ -53,68 +39,72 @@ test.describe('animatedBy prop', () => {
     )
     expect(initialOpacity).toBeCloseTo(START, 1)
 
-    // Trigger animation
-    await page.getByTestId('toggle-trigger').click()
+    // Trigger animation and poll for intermediate values via rAF
+    // this avoids brittle single-point-in-time snapshots that miss on slow CI
+    const samples: number[] = await page.evaluate((testId) => {
+      return new Promise<number[]>((resolve) => {
+        const el = document.querySelector(`[data-testid="${testId}"]`)!
+        const vals: number[] = []
+        const start = performance.now()
+        function tick() {
+          vals.push(Number(getComputedStyle(el).opacity))
+          if (performance.now() - start < 600) requestAnimationFrame(tick)
+          else resolve(vals)
+        }
+        ;(document.querySelector('[data-testid="toggle-trigger"]') as HTMLElement).click()
+        requestAnimationFrame(tick)
+      })
+    }, 'explicit-default')
 
-    // Capture shortly after click
-    // If broken (no driver), opacity jumps instantly to END
-    // If working, opacity should NOT be at END yet (animation in progress)
-    await page.waitForTimeout(50)
-    const immediateOpacity = await explicitElement.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
-    // Wait for animation to complete
-    await page.waitForTimeout(600)
-
-    const finalOpacity = await explicitElement.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
-    // Should reach end state eventually
+    const finalOpacity = samples[samples.length - 1]
     expect(
       finalOpacity,
       `Should reach end state (${END}), got ${finalOpacity.toFixed(2)}`
     ).toBeCloseTo(END, 1)
 
-    // Key test: with proper animation driver, opacity should NOT jump instantly to END
-    // When broken, it jumps to 1.0 immediately. When working, it stays at ~0.5 initially.
-    const jumpedInstantly = Math.abs(immediateOpacity - END) < TOLERANCE
+    // key test: if animation driver works, at least one sample should be intermediate
+    const hasIntermediate = samples.some(
+      (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
+    )
     expect(
-      jumpedInstantly,
-      `With animatedBy="default", opacity should not jump instantly to ${END}. ` +
-        `Got immediate=${immediateOpacity.toFixed(2)}. If it jumped, the driver lookup is broken.`
-    ).toBe(false)
+      hasIntermediate,
+      `With animatedBy="default", should see intermediate values during animation. ` +
+        `Samples: [${samples
+          .slice(0, 5)
+          .map((s) => s.toFixed(2))
+          .join(', ')}...]`
+    ).toBe(true)
   })
 
   test('context default (no animatedBy) also animates', async ({ page }) => {
     const START = 0.5,
       END = 1
 
-    const contextElement = page.getByTestId('context-driver')
-
-    const initialOpacity = await contextElement.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
+    const initialOpacity = await page
+      .getByTestId('context-driver')
+      .evaluate((el) => Number(getComputedStyle(el).opacity))
     expect(initialOpacity).toBeCloseTo(START, 1)
 
-    await page.getByTestId('toggle-trigger').click()
-    await page.waitForTimeout(50)
+    // poll via rAF to capture intermediate values reliably
+    const samples: number[] = await page.evaluate((testId) => {
+      return new Promise<number[]>((resolve) => {
+        const el = document.querySelector(`[data-testid="${testId}"]`)!
+        const vals: number[] = []
+        const start = performance.now()
+        function tick() {
+          vals.push(Number(getComputedStyle(el).opacity))
+          if (performance.now() - start < 600) requestAnimationFrame(tick)
+          else resolve(vals)
+        }
+        ;(document.querySelector('[data-testid="toggle-trigger"]') as HTMLElement).click()
+        requestAnimationFrame(tick)
+      })
+    }, 'context-driver')
 
-    const midOpacity = await contextElement.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
-    await page.waitForTimeout(500)
-    const finalOpacity = await contextElement.evaluate((el) =>
-      Number(getComputedStyle(el).opacity)
-    )
-
+    const finalOpacity = samples[samples.length - 1]
     expect(finalOpacity, 'End opacity').toBeCloseTo(END, 1)
-    expect(
-      isIntermediate(midOpacity, START, END) || midOpacity > START,
-      `Context default mid opacity (${midOpacity.toFixed(2)}) should show animation progress`
-    ).toBe(true)
+    const hasProgress = samples.some((v) => v > START + TOLERANCE)
+    expect(hasProgress, `Context default should show animation progress`).toBe(true)
   })
 
   test('both elements animate in sync', async ({ page }) => {

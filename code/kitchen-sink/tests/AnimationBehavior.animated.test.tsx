@@ -99,27 +99,38 @@ test.describe('Animation Behavior', () => {
   })
 
   test('scale timing animation has intermediate values', async ({ page }) => {
-    const testInfo = test.info()
-    const driver = (testInfo.project?.metadata as any)?.animationDriver
     const START = 1,
       END = 1.5
 
     const startScale = await getScale(page, 'scenario-36-target')
     expect(startScale, 'Start').toBeCloseTo(START, 1)
 
-    await page.getByTestId('scenario-36-trigger').click()
-    // wait 250ms into a 500ms animation for reliable intermediate capture
-    await page.waitForTimeout(250)
-    const midScale = await getScale(page, 'scenario-36-target')
+    // poll via rAF for reliable intermediate capture across CI environments
+    const samples: number[] = await page.evaluate(() => {
+      return new Promise<number[]>((resolve) => {
+        const el = document.querySelector('[data-testid="scenario-36-target"]')!
+        const vals: number[] = []
+        const start = performance.now()
+        function tick() {
+          const t = getComputedStyle(el).transform
+          const m = t.match(/matrix\(([^,]+),/)
+          vals.push(m ? Number.parseFloat(m[1]) : 1)
+          if (performance.now() - start < 800) requestAnimationFrame(tick)
+          else resolve(vals)
+        }
+        ;(
+          document.querySelector('[data-testid="scenario-36-trigger"]') as HTMLElement
+        ).click()
+        requestAnimationFrame(tick)
+      })
+    })
 
-    await page.waitForTimeout(800)
-    const endScale = await getScale(page, 'scenario-36-target')
-
+    const endScale = samples[samples.length - 1]
     expect(endScale, 'End').toBeCloseTo(END, 1)
-    expect(
-      isIntermediate(midScale, START, END),
-      `Mid (${midScale.toFixed(2)}) should be intermediate`
-    ).toBe(true)
+    const hasIntermediate = samples.some(
+      (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
+    )
+    expect(hasIntermediate, `Should have intermediate scale values`).toBe(true)
   })
 
   test('animation with delay completes correctly', async ({ page }) => {
