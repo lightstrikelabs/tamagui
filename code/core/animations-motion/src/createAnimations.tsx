@@ -54,6 +54,28 @@ type TransitionAnimationOptions = AnimationOptions & {
 
 const MotionValueStrategy = new WeakMap<MotionValue, AnimatedNumberStrategy>()
 
+// env flags to disable individual motion driver hacks for testing
+// set TAMAGUI_MOTION_HACK_FLAGS=1,2,3 to DISABLE specific hacks
+const disabledHacks = new Set(
+  (typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS || '')
+    .split(',')
+    .filter(Boolean)
+)
+// hack 1: deterministic exit completion tracking (exitCycleIdRef, pendingExitCounts, markExitKeyDone)
+const HACK_EXIT_TRACKING = !disabledHacks.has('1')
+// hack 2: frozen exit target (prevents direction reversal mid-exit)
+const HACK_FROZEN_EXIT = !disabledHacks.has('2')
+// hack 3: exit stop + cycle increment (stop running animation before exit)
+const HACK_EXIT_STOP = !disabledHacks.has('3')
+// hack 4: position interruption fix (keyframe from current position for popper)
+const HACK_POSITION_FIX = !disabledHacks.has('4')
+// hack 5: post-completion inline style commit (prevent WAAPI flash)
+const HACK_INLINE_COMMIT = !disabledHacks.has('5')
+// hack 6: dontAnimate→doAnimate sync (prevents flicker when transitioning)
+const HACK_DONT_TO_DO_SYNC = !disabledHacks.has('6')
+// hack 7: isRunning TypeError guard (animations?.length === 0 check)
+const HACK_ISRUNNING_GUARD = !disabledHacks.has('7')
+
 // regex to detect non-position transform operations (scale, rotate, skew, matrix, perspective)
 // used to identify position-only transforms for the popper animation fix
 const nonPositionTransformRe = /scale|rotate|skew|matrix|perspective/
@@ -136,7 +158,7 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       // them before starting new animations (prevents style conflicts)
       const styleKey = JSON.stringify(style)
 
-      // exit cycle guards to prevent stale/duplicate completion
+      // hack 1: exit cycle guards to prevent stale/duplicate completion
       const exitCycleIdRef = useRef(0)
       const pendingExitCountsRef = useRef<Map<string, number>>(new Map())
       const exitCompletedRef = useRef(false)
@@ -155,22 +177,23 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       const justStartedExiting = isExiting && !wasExitingRef.current
       const justStoppedExiting = !isExiting && wasExitingRef.current
 
-      // start new exit cycle only on transition INTO exiting
-      if (justStartedExiting) {
+      // hack 1: start new exit cycle only on transition INTO exiting
+      if (HACK_EXIT_TRACKING && justStartedExiting) {
         exitCycleIdRef.current++
         pendingExitCountsRef.current.clear()
         exitCompletedRef.current = false
         completionScheduledRef.current = false
       }
-      // invalidate pending callbacks when exit is canceled/interrupted
-      if (justStoppedExiting) {
+      // hack 1: invalidate pending callbacks when exit is canceled/interrupted
+      if (HACK_EXIT_TRACKING && justStoppedExiting) {
         exitCycleIdRef.current++
         pendingExitCountsRef.current.clear()
         completionScheduledRef.current = false
       }
 
-      // helper to mark a key as done - uses macrotask deferral for robust timing
+      // hack 1: helper to mark a key as done - uses macrotask deferral for robust timing
       const markExitKeyDone = (key: string, cycleId: number) => {
+        if (!HACK_EXIT_TRACKING) return
         if (cycleId !== exitCycleIdRef.current) return
         if (exitCompletedRef.current) return
 
@@ -199,6 +222,16 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
             completionScheduledRef.current = false
           }, 0)
         }
+      }
+
+      // hack 2: freeze exit animation target so direction changes don't reverse mid-exit
+      const frozenExitTarget = useRef<Record<string, unknown> | null>(null)
+      if (HACK_FROZEN_EXIT && justStartedExiting) {
+        // will be populated on first flushAnimation call during exit
+        frozenExitTarget.current = null
+      }
+      if (HACK_FROZEN_EXIT && justStoppedExiting) {
+        frozenExitTarget.current = null
       }
 
       // track previous exiting state
@@ -247,7 +280,7 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       }, [])
 
       const flushAnimation = ({
-        doAnimate = {},
+        doAnimate: doAnimateRaw = {},
         animationOptions: passedOptions = {},
         dontAnimate,
       }: AnimationProps) => {
@@ -257,6 +290,13 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
         // Read current state from refs (closure variables can be stale)
         const isCurrentlyExiting = isExitingRef.current
         const currentSendExitComplete = sendExitCompleteRef.current
+
+        // hack 2: freeze exit target: once the first exit animation starts, subsequent
+        // renders (e.g. direction change) should not reverse the exit animation.
+        let doAnimate = doAnimateRaw
+        if (HACK_FROZEN_EXIT && isCurrentlyExiting && frozenExitTarget.current) {
+          doAnimate = frozenExitTarget.current
+        }
 
         // Only recompute animation options for exit animations to avoid stale state.
         // For non-exit animations (hover, press, etc.), use the passed options which
@@ -321,12 +361,9 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
           }
 
           if (doAnimate) {
-            // bugfix: going from non-animated to animated in motion -
+            // hack 6: going from non-animated to animated in motion -
             // motion batches things so the above removal can happen a frame before causing flickering
-            // we see this with tooltips, this is not an ideal solution though, ideally we can remove/update
-            // in the same batch/frame as motion
-            // Also sync motion's internal state for properties moving from dontAnimate to doAnimate
-            if (prevDont) {
+            if (HACK_DONT_TO_DO_SYNC && prevDont) {
               const movedToAnimate: Record<string, unknown> = {}
               for (const key in prevDont) {
                 if (key in doAnimate) {
@@ -354,16 +391,20 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
             }
 
             const diff = getDiff(lastDoAnimate.current, doAnimate)
+
             if (diff) {
-              // FIX: For exit animations, we must stop any running animation first.
-              // Without this, motion continues the previous animation (e.g., enter) and
-              // immediately resolves the new animation's promise, causing exit to complete
-              // in milliseconds instead of the expected duration.
-              if (isCurrentlyExiting && controls.current) {
+              // hack 2: capture frozen exit target on first exit diff
+              if (HACK_FROZEN_EXIT && isCurrentlyExiting && !frozenExitTarget.current) {
+                frozenExitTarget.current = { ...doAnimate }
+              }
+
+              // hack 3: stop running animation before exit to prevent motion from
+              // immediately resolving the new animation's promise
+              if (HACK_EXIT_STOP && isCurrentlyExiting && controls.current) {
+                exitCycleIdRef.current++
                 controls.current.stop()
-                // clear pending exit counts since stop() may not reject the finished promise,
-                // which would leave stale counts that prevent exit completion (ghost elements)
                 pendingExitCountsRef.current.clear()
+                completionScheduledRef.current = false
               }
 
               // FIX: Handle animation interruption for position-only animations
@@ -375,17 +416,15 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               // NOTE: We check for animatePosition to avoid this fix causing jitter
               // on components like the TAMAGUI logo dot indicator which also use translate-only transforms
 
-              const isRunning =
-                /**
-                 * TypeError: Cannot read properties of undefined (reading 'state')
-                 * at GroupAnimationWithThen.getAll (http://localhost:8081/node_modules/.vite/deps/@tamagui_config_v5-motion.js?v=d717d926:2374:30)
-                 * at get state (http://localhost:8081/node_modules/.vite/deps/@tamagui_config_v5-motion.js?v=d717d926:2403:17)
-                 * at flushAnimation (http://localhost:8081/node_modules/.vite/deps/@tamagui_config_v5-motion.js?v=d717d926:9686:49)
-                 **/
-                // @ts-expect-error it is there, and for some crazy reason in ~/chat pretty often i get errors ^
-                controls.current?.animations?.length === 0
-                  ? false
-                  : controls.current?.state === 'running'
+              // hack 7: TypeError guard for controls.state access
+              const isRunning = HACK_ISRUNNING_GUARD
+                ? (
+                    // @ts-expect-error animations prop exists at runtime
+                    controls.current?.animations?.length === 0
+                      ? false
+                      : controls.current?.state === 'running'
+                  )
+                : controls.current?.state === 'running'
               const targetTransform =
                 typeof diff.transform === 'string' ? diff.transform : null
 
@@ -418,7 +457,9 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               // this fixes roving tabs indicator jumping when rapidly switching
               const isEnteringPresenceChild = presence && justFinishedEntering
 
+              // hack 4: position interruption fix
               if (
+                HACK_POSITION_FIX &&
                 isRunning &&
                 controls.current &&
                 isPositionOnlyTransform &&
@@ -484,12 +525,8 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               controls.current = startedControls
               lastAnimateAt.current = Date.now()
 
-              // FIX: prevent flash when motion.dev removes WAAPI after completion.
-              // motion.dev cancels the WAAPI animation after it finishes, which removes
-              // the animated transform and reveals the stale inline style. By setting
-              // the target as inline in the finished handler (microtask), we ensure the
-              // correct value is in place before the next paint.
-              if (isPopperElement && !isCurrentlyExiting && fixedDiff.transform) {
+              // hack 5: prevent flash when motion.dev removes WAAPI after completion
+              if (HACK_INLINE_COMMIT && isPopperElement && !isCurrentlyExiting && fixedDiff.transform) {
                 const target =
                   typeof fixedDiff.transform === 'string'
                     ? fixedDiff.transform
@@ -513,12 +550,11 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
           lastDontAnimate.current = dontAnimate ? { ...dontAnimate } : {}
           lastDoAnimate.current = doAnimate ? { ...doAnimate } : {}
         } finally {
-          if (isCurrentlyExiting && currentSendExitComplete) {
+          // hack 1: deterministic exit completion tracking
+          if (HACK_EXIT_TRACKING && isCurrentlyExiting && currentSendExitComplete) {
             const cycleId = exitCycleIdRef.current
 
-            // only track completion if we actually started an animation in THIS flush
             if (startedControls) {
-              // register keys for this specific animation
               const exitKeys = doAnimate ? Object.keys(doAnimate) : []
               for (const key of exitKeys) {
                 pendingExitCountsRef.current.set(
@@ -527,7 +563,6 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                 )
               }
 
-              // wait on the animation we just started, not a stale reference
               startedControls.finished
                 .then(() => {
                   for (const key of exitKeys) {
@@ -535,7 +570,6 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                   }
                 })
                 .catch(() => {
-                  // animation was canceled, still complete
                   for (const key of exitKeys) {
                     markExitKeyDone(key, cycleId)
                   }
@@ -545,7 +579,6 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               !exitCompletedRef.current &&
               !completionScheduledRef.current
             ) {
-              // no animation started and no pending keys - defer by macrotask
               completionScheduledRef.current = true
               setTimeout(() => {
                 if (
@@ -554,7 +587,6 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                   pendingExitCountsRef.current.size === 0
                 ) {
                   exitCompletedRef.current = true
-                  // use ref to avoid stale closure
                   sendExitCompleteRef.current?.()
                 }
                 completionScheduledRef.current = false
