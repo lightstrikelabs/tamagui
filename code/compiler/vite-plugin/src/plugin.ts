@@ -13,9 +13,8 @@ import {
   ensureFullConfigLoaded,
 } from './loadTamagui'
 
-const resolve = 'url' in import.meta
-  ? createRequire(import.meta.url).resolve
-  : require.resolve
+const resolve =
+  'url' in import.meta ? createRequire(import.meta.url).resolve : require.resolve
 
 // shared cache across all plugin instances/environments via globalThis
 type CacheEntry = {
