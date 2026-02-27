@@ -54,32 +54,6 @@ type TransitionAnimationOptions = AnimationOptions & {
 
 const MotionValueStrategy = new WeakMap<MotionValue, AnimatedNumberStrategy>()
 
-// env flags to disable individual motion driver hacks for testing
-// set TAMAGUI_MOTION_HACK_FLAGS=1,2,3 to DISABLE specific hacks
-const disabledHacks = new Set(
-  ((typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS) || '')
-    .split(',')
-    .filter(Boolean)
-)
-// hack 1: deterministic exit completion tracking (exitCycleIdRef, pendingExitCounts, markExitKeyDone)
-const HACK_EXIT_TRACKING = !disabledHacks.has('1')
-// hack 2: frozen exit target (prevents direction reversal mid-exit)
-const HACK_FROZEN_EXIT = !disabledHacks.has('2')
-// hack 3: exit stop + cycle increment (stop running animation before exit)
-const HACK_EXIT_STOP = !disabledHacks.has('3')
-// hack 4: position interruption fix (keyframe from current position for popper)
-const HACK_POSITION_FIX = !disabledHacks.has('4')
-// hack 5: post-completion inline style commit (prevent WAAPI flash)
-const HACK_INLINE_COMMIT = !disabledHacks.has('5')
-// hack 6: dontAnimate→doAnimate sync (prevents flicker when transitioning)
-const HACK_DONT_TO_DO_SYNC = !disabledHacks.has('6')
-// hack 7: isRunning TypeError guard (animations?.length === 0 check)
-const HACK_ISRUNNING_GUARD = !disabledHacks.has('7')
-
-// regex to detect non-position transform operations (scale, rotate, skew, matrix, perspective)
-// used to identify position-only transforms for the popper animation fix
-const nonPositionTransformRe = /scale|rotate|skew|matrix|perspective/
-
 type AnimationProps = {
   doAnimate?: Record<string, unknown>
   dontAnimate?: Record<string, unknown>
@@ -154,18 +128,10 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       const [scope, animate] = useAnimate()
       const lastDoAnimate = useRef<Record<string, unknown> | null>(null)
       const controls = useRef<AnimationPlaybackControlsWithThen | null>(null)
-      // track WAAPI fill:forwards animations for popper elements so we can cancel
-      // them before starting new animations (prevents style conflicts)
       const styleKey = JSON.stringify(style)
 
-      // hack 1: exit cycle guards to prevent stale/duplicate completion
-      const exitCycleIdRef = useRef(0)
-      const pendingExitCountsRef = useRef<Map<string, number>>(new Map())
-      const exitCompletedRef = useRef(false)
       const wasExitingRef = useRef(false)
-      const completionScheduledRef = useRef(false)
       // track current state in refs for reliable access from callbacks
-      // (closure variables can be stale when callbacks fire)
       const isExitingRef = useRef(isExiting)
       isExitingRef.current = isExiting
       const sendExitCompleteRef = useRef(sendExitComplete)
@@ -177,60 +143,12 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       const justStartedExiting = isExiting && !wasExitingRef.current
       const justStoppedExiting = !isExiting && wasExitingRef.current
 
-      // hack 1: start new exit cycle only on transition INTO exiting
-      if (HACK_EXIT_TRACKING && justStartedExiting) {
-        exitCycleIdRef.current++
-        pendingExitCountsRef.current.clear()
-        exitCompletedRef.current = false
-        completionScheduledRef.current = false
-      }
-      // hack 1: invalidate pending callbacks when exit is canceled/interrupted
-      if (HACK_EXIT_TRACKING && justStoppedExiting) {
-        exitCycleIdRef.current++
-        pendingExitCountsRef.current.clear()
-        completionScheduledRef.current = false
-      }
-
-      // hack 1: helper to mark a key as done - uses macrotask deferral for robust timing
-      const markExitKeyDone = (key: string, cycleId: number) => {
-        if (!HACK_EXIT_TRACKING) return
-        if (cycleId !== exitCycleIdRef.current) return
-        if (exitCompletedRef.current) return
-
-        const pending = pendingExitCountsRef.current
-        const currentCount = pending.get(key) ?? 0
-        if (currentCount <= 1) {
-          pending.delete(key)
-        } else {
-          pending.set(key, currentCount - 1)
-        }
-
-        // defer completion check by one macrotask to handle async state/effects/scheduler
-        if (pending.size === 0 && !completionScheduledRef.current) {
-          completionScheduledRef.current = true
-          setTimeout(() => {
-            // re-check after macrotask in case new animations were registered
-            if (
-              cycleId === exitCycleIdRef.current &&
-              !exitCompletedRef.current &&
-              pendingExitCountsRef.current.size === 0
-            ) {
-              exitCompletedRef.current = true
-              // use ref to avoid stale closure
-              sendExitCompleteRef.current?.()
-            }
-            completionScheduledRef.current = false
-          }, 0)
-        }
-      }
-
-      // hack 2: freeze exit animation target so direction changes don't reverse mid-exit
+      // freeze exit animation target so direction changes don't reverse mid-exit
       const frozenExitTarget = useRef<Record<string, unknown> | null>(null)
-      if (HACK_FROZEN_EXIT && justStartedExiting) {
-        // will be populated on first flushAnimation call during exit
+      if (justStartedExiting) {
         frozenExitTarget.current = null
       }
-      if (HACK_FROZEN_EXIT && justStoppedExiting) {
+      if (justStoppedExiting) {
         frozenExitTarget.current = null
       }
 
@@ -291,10 +209,10 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
         const isCurrentlyExiting = isExitingRef.current
         const currentSendExitComplete = sendExitCompleteRef.current
 
-        // hack 2: freeze exit target: once the first exit animation starts, subsequent
-        // renders (e.g. direction change) should not reverse the exit animation.
+        // freeze exit target: once the first exit animation starts, subsequent
+        // renders (e.g. direction change) should not reverse the exit animation
         let doAnimate = doAnimateRaw
-        if (HACK_FROZEN_EXIT && isCurrentlyExiting && frozenExitTarget.current) {
+        if (isCurrentlyExiting && frozenExitTarget.current) {
           doAnimate = frozenExitTarget.current
         }
 
@@ -361,9 +279,9 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
           }
 
           if (doAnimate) {
-            // hack 6: going from non-animated to animated in motion -
+            // sync properties moving from dontAnimate to doAnimate -
             // motion batches things so the above removal can happen a frame before causing flickering
-            if (HACK_DONT_TO_DO_SYNC && prevDont) {
+            if (prevDont) {
               const movedToAnimate: Record<string, unknown> = {}
               for (const key in prevDont) {
                 if (key in doAnimate) {
@@ -393,122 +311,9 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
             const diff = getDiff(lastDoAnimate.current, doAnimate)
 
             if (diff) {
-              // hack 2: capture frozen exit target on first exit diff
-              if (HACK_FROZEN_EXIT && isCurrentlyExiting && !frozenExitTarget.current) {
+              // capture frozen exit target on first exit diff
+              if (isCurrentlyExiting && !frozenExitTarget.current) {
                 frozenExitTarget.current = { ...doAnimate }
-              }
-
-              // hack 3: stop running animation before exit to prevent motion from
-              // immediately resolving the new animation's promise
-              if (HACK_EXIT_STOP && isCurrentlyExiting && controls.current) {
-                exitCycleIdRef.current++
-                controls.current.stop()
-                pendingExitCountsRef.current.clear()
-                completionScheduledRef.current = false
-              }
-
-              // FIX: Handle animation interruption for position-only animations
-              // Only apply this fix when:
-              // 1. There's a running animation
-              // 2. The transform change is POSITION-ONLY (just translate, no scale/rotate/skew)
-              // 3. animatePosition is being used (Popper/Tooltip pattern)
-              // This fixes tooltip position jumping without breaking AnimatePresence scale/rotate animations
-              // NOTE: We check for animatePosition to avoid this fix causing jitter
-              // on components like the TAMAGUI logo dot indicator which also use translate-only transforms
-
-              // hack 7: TypeError guard for controls.state access
-              const isRunning = HACK_ISRUNNING_GUARD
-                ? // @ts-expect-error animations prop exists at runtime
-                  controls.current?.animations?.length === 0
-                  ? false
-                  : controls.current?.state === 'running'
-                : controls.current?.state === 'running'
-              const targetTransform =
-                typeof diff.transform === 'string' ? diff.transform : null
-
-              // only apply position fix for translate-only transforms
-              const isPositionOnlyTransform =
-                targetTransform &&
-                targetTransform.includes('translate') &&
-                !nonPositionTransformRe.test(targetTransform)
-
-              // Position fix for Popper/Tooltip elements with animatePosition.
-              // Only apply when:
-              // 1. Animation is actively running
-              // 2. Transform is position-only (translate without scale/rotate/etc)
-              // 3. Element has data-popper-animate-position attribute (set by Popper when
-              //    animatePosition is true)
-              //
-              // The issue: when a Popper animation is interrupted mid-flight, motion's
-              // animate() may start from wrong position causing jumps to origin.
-              //
-              // Why check data-popper-animate-position: This attribute is ONLY set on Popper
-              // elements that explicitly use animatePosition. Regular
-              // components like the logo Circle don't have this attribute, so they won't
-              // get this fix applied (which would cause jitter due to getComputedStyle
-              // overhead on rapid updates).
-
-              // check if this is a Popper element with animated position
-              const isPopperElement = node.hasAttribute('data-popper-animate-position')
-
-              // also apply fix for AnimatePresence children that just finished entering
-              // this fixes roving tabs indicator jumping when rapidly switching
-              const isEnteringPresenceChild = presence && justFinishedEntering
-
-              // hack 4: position interruption fix
-              if (
-                HACK_POSITION_FIX &&
-                isRunning &&
-                controls.current &&
-                isPositionOnlyTransform &&
-                (isPopperElement || isEnteringPresenceChild)
-              ) {
-                const currentTransform = getComputedStyle(node).transform
-
-                if (currentTransform && currentTransform !== 'none') {
-                  const matrixMatch = currentTransform.match(
-                    /matrix\([^,]+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([^,]+),\s*([^)]+)\)/
-                  )
-
-                  if (matrixMatch) {
-                    // stop animation and preserve current position
-                    controls.current.stop()
-                    node.style.transform = currentTransform
-
-                    // animate from current matrix position to target
-                    const currentX = Number.parseFloat(matrixMatch[1])
-                    const currentY = Number.parseFloat(matrixMatch[2])
-                    const keyframeDiff = {
-                      ...diff,
-                      transform: [
-                        `translateX(${currentX}px) translateY(${currentY}px)`,
-                        targetTransform,
-                      ],
-                    }
-
-                    startedControls = animate(
-                      scope.current,
-                      keyframeDiff,
-                      animationOptions
-                    )
-                    controls.current = startedControls
-                    lastAnimateAt.current = Date.now()
-                    lastDontAnimate.current = dontAnimate ? { ...dontAnimate } : {}
-                    lastDoAnimate.current = doAnimate ? { ...doAnimate } : {}
-
-                    // commit target to inline on completion (same flash fix)
-                    if (isPopperElement && targetTransform) {
-                      startedControls.finished
-                        .then(() => {
-                          if (node.isConnected) {
-                            node.style.transform = targetTransform
-                          }
-                        })
-                        .catch(() => {})
-                    }
-                    return
-                  }
-                }
               }
 
               // IMPORTANT: Spread to create mutable copy - style objects may be frozen
@@ -522,30 +327,6 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               startedControls = animate(scope.current, fixedDiff, animationOptions)
               controls.current = startedControls
               lastAnimateAt.current = Date.now()
-
-              // hack 5: prevent flash when motion.dev removes WAAPI after completion
-              if (
-                HACK_INLINE_COMMIT &&
-                isPopperElement &&
-                !isCurrentlyExiting &&
-                fixedDiff.transform
-              ) {
-                const target =
-                  typeof fixedDiff.transform === 'string'
-                    ? fixedDiff.transform
-                    : Array.isArray(fixedDiff.transform)
-                      ? fixedDiff.transform[fixedDiff.transform.length - 1]
-                      : null
-                if (typeof target === 'string') {
-                  startedControls.finished
-                    .then(() => {
-                      if (node.isConnected) {
-                        node.style.transform = target
-                      }
-                    })
-                    .catch(() => {})
-                }
-              }
             }
           }
 
@@ -553,47 +334,14 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
           lastDontAnimate.current = dontAnimate ? { ...dontAnimate } : {}
           lastDoAnimate.current = doAnimate ? { ...doAnimate } : {}
         } finally {
-          // hack 1: deterministic exit completion tracking
-          if (HACK_EXIT_TRACKING && isCurrentlyExiting && currentSendExitComplete) {
-            const cycleId = exitCycleIdRef.current
-
+          // simple exit completion: call sendExitComplete when animation finishes
+          if (isCurrentlyExiting && currentSendExitComplete) {
             if (startedControls) {
-              const exitKeys = doAnimate ? Object.keys(doAnimate) : []
-              for (const key of exitKeys) {
-                pendingExitCountsRef.current.set(
-                  key,
-                  (pendingExitCountsRef.current.get(key) ?? 0) + 1
-                )
-              }
-
               startedControls.finished
-                .then(() => {
-                  for (const key of exitKeys) {
-                    markExitKeyDone(key, cycleId)
-                  }
-                })
-                .catch(() => {
-                  for (const key of exitKeys) {
-                    markExitKeyDone(key, cycleId)
-                  }
-                })
-            } else if (
-              pendingExitCountsRef.current.size === 0 &&
-              !exitCompletedRef.current &&
-              !completionScheduledRef.current
-            ) {
-              completionScheduledRef.current = true
-              setTimeout(() => {
-                if (
-                  cycleId === exitCycleIdRef.current &&
-                  !exitCompletedRef.current &&
-                  pendingExitCountsRef.current.size === 0
-                ) {
-                  exitCompletedRef.current = true
-                  sendExitCompleteRef.current?.()
-                }
-                completionScheduledRef.current = false
-              }, 0)
+                .then(() => currentSendExitComplete())
+                .catch(() => currentSendExitComplete())
+            } else {
+              currentSendExitComplete()
             }
           }
         }

@@ -23,10 +23,27 @@ export const useFloatingContext = ({
 
   return React.useCallback(
     (props: UseFloatingOptions) => {
+      // multi-trigger switching: when moving between trigger elements while the
+      // popover is open, useHover fires a close (mouseleave on old trigger, or
+      // safePolygon's mousemove handler). we suppress hover closes during a brief
+      // window that starts on mouseleave of a trigger (while open) and ends when
+      // either a new trigger is entered or the window expires.
+      const switchingRef = React.useRef(false)
+      const pendingCloseRef = React.useRef(false)
+      const switchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+
       const floating = useFloating({
         ...props,
         open,
         onOpenChange: (val, event) => {
+          if (
+            !val &&
+            switchingRef.current &&
+            (event?.type === 'mousemove' || event?.type === 'mouseleave')
+          ) {
+            pendingCloseRef.current = true
+            return
+          }
           const type =
             event?.type === 'mousemove' ||
             event?.type === 'mouseenter' ||
@@ -68,13 +85,37 @@ export const useFloatingContext = ({
         // in PopperAnchor that lets useHover process it natively.
         onHoverReference: hoverable
           ? (event: any) => {
-              if (open) return
+              if (open) {
+                // entering a new trigger while open - clear any pending close
+                pendingCloseRef.current = false
+                clearTimeout(switchTimerRef.current)
+                switchTimerRef.current = setTimeout(() => {
+                  switchingRef.current = false
+                }, 200)
+                return
+              }
               const delay = typeof hoverable === 'object' ? hoverable.delay : 0
               const openDelay =
                 typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
               if (!openDelay) {
                 floating.context.onOpenChange(true, event, 'hover')
               }
+            }
+          : undefined,
+        // called when mouse leaves a trigger element
+        onLeaveReference: hoverable
+          ? () => {
+              if (!open) return
+              switchingRef.current = true
+              pendingCloseRef.current = false
+              clearTimeout(switchTimerRef.current)
+              switchTimerRef.current = setTimeout(() => {
+                switchingRef.current = false
+                if (pendingCloseRef.current) {
+                  pendingCloseRef.current = false
+                  setOpen(false, 'hover')
+                }
+              }, 150)
             }
           : undefined,
       }

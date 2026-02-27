@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AnimatePresence,
   Button,
@@ -12,11 +12,26 @@ import {
 
 const TABS = ['Tab A', 'Tab B', 'Tab C', 'Tab D', 'Tab E']
 
+function useHoverableFromParams() {
+  return useMemo(() => {
+    if (typeof window === 'undefined') return true
+    const params = new URLSearchParams(window.location.search)
+    const delay = params.get('hoverDelay')
+    const restMs = params.get('restMs')
+    if (!delay && !restMs) return true
+    const config: any = {}
+    if (delay) config.delay = Number(delay)
+    if (restMs) config.restMs = Number(restMs)
+    return config
+  }, [])
+}
+
 export function TabHoverAnimationCase() {
   const [open, setOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [prevActiveTab, setPrevActiveTab] = useState<string | null>(null)
   const [going, setGoing] = useState(0)
+  const hoverable = useHoverableFromParams()
 
   const displayTab = useLastValueIf(activeTab, !!activeTab) ?? activeTab
 
@@ -37,6 +52,18 @@ export function TabHoverAnimationCase() {
     }
   }, [activeTab])
 
+  // track close events for test instrumentation
+  const closeCountRef = useRef(0)
+  const handleOpenChange = (val: boolean) => {
+    if (!val && open) {
+      closeCountRef.current++
+      if (typeof window !== 'undefined') {
+        ;(window as any).__popoverCloseCount = closeCountRef.current
+      }
+    }
+    setOpen(val)
+  }
+
   return (
     <YStack gap="$4" padding="$4">
       <SizableText id="going-direction" data-going={going}>
@@ -46,8 +73,8 @@ export function TabHoverAnimationCase() {
       <Popover
         scope="tab-hover-test"
         open={open}
-        onOpenChange={setOpen}
-        hoverable
+        onOpenChange={handleOpenChange}
+        hoverable={hoverable}
         placement="top"
         offset={8}
       >

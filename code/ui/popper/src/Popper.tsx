@@ -75,6 +75,7 @@ export type PopperContextSlowValue = PopperContextShared &
     'context' | 'getReferenceProps' | 'getFloatingProps' | 'strategy' | 'update' | 'refs'
   > & {
     onHoverReference?: (event: any) => void
+    onLeaveReference?: () => void
   }
 
 export const PopperContextSlow = createStyledContext<PopperContextSlowValue>(
@@ -119,6 +120,7 @@ function getContextSlow(context: PopperContextValue): PopperContextSlowValue {
     getReferenceProps: context.getReferenceProps,
     open: context.open,
     onHoverReference: (context as any).onHoverReference,
+    onLeaveReference: (context as any).onLeaveReference,
   }
 }
 
@@ -533,6 +535,7 @@ export const PopperAnchor = YStack.styleable<PopperAnchorExtraProps>(
             }
           },
           onMouseLeave: (e) => {
+            context.onLeaveReference?.()
             refProps?.onMouseLeave?.(e)
           },
         })}
