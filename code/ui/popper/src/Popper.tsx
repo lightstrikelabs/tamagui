@@ -600,6 +600,7 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
       size,
       isPositioned,
       transformOrigin,
+      open: popperOpen,
     } = context
 
     // Wrap setFloating in startTransition to avoid React #185 (setState during render)
@@ -629,10 +630,17 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
     // position jumps when the popover reopens at the new trigger.
     const hasBeenPositioned = React.useRef(false)
     const lastGoodPosition = React.useRef({ x: 0, y: 0 })
+    const wasOpenRef = React.useRef(popperOpen)
     if (isPositioned && (x !== 0 || y !== 0)) {
       hasBeenPositioned.current = true
       lastGoodPosition.current = { x, y }
     }
+    // reset on real close so stale positions don't flash on next open cycle
+    if (wasOpenRef.current && !popperOpen) {
+      hasBeenPositioned.current = false
+      lastGoodPosition.current = { x: 0, y: 0 }
+    }
+    wasOpenRef.current = popperOpen
 
     // when floating-ui resets (close/reopen cycle), use the last known good
     // position instead of 0,0 to prevent the animation driver from animating

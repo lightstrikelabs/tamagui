@@ -31,6 +31,16 @@ export const useFloatingContext = ({
       const switchingRef = React.useRef(false)
       const pendingCloseRef = React.useRef(false)
       const switchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+      const disposedRef = React.useRef(false)
+
+      // clean up timers on unmount to prevent stale callbacks
+      React.useEffect(() => {
+        disposedRef.current = false
+        return () => {
+          disposedRef.current = true
+          clearTimeout(switchTimerRef.current)
+        }
+      }, [])
 
       const floating = useFloating({
         ...props,
@@ -90,6 +100,7 @@ export const useFloatingContext = ({
                 pendingCloseRef.current = false
                 clearTimeout(switchTimerRef.current)
                 switchTimerRef.current = setTimeout(() => {
+                  if (disposedRef.current) return
                   switchingRef.current = false
                 }, 200)
                 return
@@ -110,6 +121,7 @@ export const useFloatingContext = ({
               pendingCloseRef.current = false
               clearTimeout(switchTimerRef.current)
               switchTimerRef.current = setTimeout(() => {
+                if (disposedRef.current) return
                 switchingRef.current = false
                 if (pendingCloseRef.current) {
                   pendingCloseRef.current = false
