@@ -57,7 +57,7 @@ const MotionValueStrategy = new WeakMap<MotionValue, AnimatedNumberStrategy>()
 // env flags to disable individual motion driver hacks for testing
 // set TAMAGUI_MOTION_HACK_FLAGS=1,2,3 to DISABLE specific hacks
 const disabledHacks = new Set(
-  ((typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS) || '1,3,4,5,7')
+  ((typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS) || '')
     .split(',')
     .filter(Boolean)
 )
