@@ -31,6 +31,7 @@ export const useFloatingContext = ({
       const switchingRef = React.useRef(false)
       const pendingCloseRef = React.useRef(false)
       const switchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+      const restTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
       const disposedRef = React.useRef(false)
 
       // clean up timers on unmount to prevent stale callbacks
@@ -39,6 +40,7 @@ export const useFloatingContext = ({
         return () => {
           disposedRef.current = true
           clearTimeout(switchTimerRef.current)
+          clearTimeout(restTimerRef.current)
         }
       }, [])
 
@@ -102,20 +104,31 @@ export const useFloatingContext = ({
                 switchTimerRef.current = setTimeout(() => {
                   if (disposedRef.current) return
                   switchingRef.current = false
+                  pendingCloseRef.current = false
                 }, 200)
                 return
               }
               const delay = typeof hoverable === 'object' ? hoverable.delay : 0
+              const restMs = typeof hoverable === 'object' ? hoverable.restMs : 0
               const openDelay =
                 typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
-              if (!openDelay) {
+              if (!openDelay && !restMs) {
                 floating.context.onOpenChange(true, event, 'hover')
+              } else if (restMs && !openDelay) {
+                // floating-ui's restMs won't fire on synthetic mouseenter,
+                // so we handle it ourselves for multi-trigger popovers
+                clearTimeout(restTimerRef.current)
+                restTimerRef.current = setTimeout(() => {
+                  if (disposedRef.current) return
+                  floating.context.onOpenChange(true, event, 'hover')
+                }, restMs)
               }
             }
           : undefined,
         // called when mouse leaves a trigger element
         onLeaveReference: hoverable
           ? () => {
+              clearTimeout(restTimerRef.current)
               if (!open) return
               switchingRef.current = true
               pendingCloseRef.current = false
