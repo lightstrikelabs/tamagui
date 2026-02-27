@@ -3,7 +3,7 @@ import * as Static from '@tamagui/static-worker'
 import { getPragmaOptions } from '@tamagui/static-worker'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite'
 import { normalizePath, transformWithEsbuild, type Environment } from 'vite'
 import {
@@ -13,7 +13,9 @@ import {
   ensureFullConfigLoaded,
 } from './loadTamagui'
 
-const resolve = (name: string) => fileURLToPath(import.meta.resolve(name))
+const resolve = 'url' in import.meta
+  ? createRequire(import.meta.url).resolve
+  : require.resolve
 
 // shared cache across all plugin instances/environments via globalThis
 type CacheEntry = {
