@@ -376,8 +376,10 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               const isEnteringPresenceChild = presence && justFinishedEntering
 
               // position interruption fix: when a popper animation is interrupted mid-flight,
-              // motion's animate() may start from wrong position causing jumps to origin
+              // motion's animate() may start from wrong position causing jumps to origin.
+              // disable with TAMAGUI_DISABLE_POSITION_FIX=1 to test if upstream fix works
               if (
+                !process.env.TAMAGUI_DISABLE_POSITION_FIX &&
                 isRunning &&
                 controls.current &&
                 isPositionOnlyTransform &&

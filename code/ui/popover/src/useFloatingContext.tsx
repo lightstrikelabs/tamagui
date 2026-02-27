@@ -23,23 +23,14 @@ export const useFloatingContext = ({
 
   return React.useCallback(
     (props: UseFloatingOptions) => {
-      // multi-trigger switching: when moving between trigger elements while the
-      // popover is open, useHover fires a close (mouseleave on old trigger, or
-      // safePolygon's mousemove handler). we suppress hover closes during a brief
-      // window that starts on mouseleave of a trigger (while open) and ends when
-      // either a new trigger is entered or the window expires.
-      const switchingRef = React.useRef(false)
-      const pendingCloseRef = React.useRef(false)
-      const switchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+      // tracks whether pointer is currently over any trigger element.
+      // while true, suppress hover-initiated closes (safePolygon/mouseleave)
+      // so the popover stays open during multi-trigger switching.
+      const onTriggerRef = React.useRef(false)
       const restTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
-      const disposedRef = React.useRef(false)
 
-      // clean up timers on unmount to prevent stale callbacks
       React.useEffect(() => {
-        disposedRef.current = false
         return () => {
-          disposedRef.current = true
-          clearTimeout(switchTimerRef.current)
           clearTimeout(restTimerRef.current)
         }
       }, [])
@@ -48,12 +39,12 @@ export const useFloatingContext = ({
         ...props,
         open,
         onOpenChange: (val, event) => {
+          // suppress hover closes while pointer is on a trigger
           if (
             !val &&
-            switchingRef.current &&
+            onTriggerRef.current &&
             (event?.type === 'mousemove' || event?.type === 'mouseleave')
           ) {
-            pendingCloseRef.current = true
             return
           }
           const type =
@@ -97,17 +88,8 @@ export const useFloatingContext = ({
         // in PopperAnchor that lets useHover process it natively.
         onHoverReference: hoverable
           ? (event: any) => {
-              if (open) {
-                // entering a new trigger while open - clear any pending close
-                pendingCloseRef.current = false
-                clearTimeout(switchTimerRef.current)
-                switchTimerRef.current = setTimeout(() => {
-                  if (disposedRef.current) return
-                  switchingRef.current = false
-                  pendingCloseRef.current = false
-                }, 200)
-                return
-              }
+              onTriggerRef.current = true
+              if (open) return
               const delay = typeof hoverable === 'object' ? hoverable.delay : 0
               const restMs = typeof hoverable === 'object' ? hoverable.restMs : 0
               const openDelay =
@@ -119,28 +101,15 @@ export const useFloatingContext = ({
                 // so we handle it ourselves for multi-trigger popovers
                 clearTimeout(restTimerRef.current)
                 restTimerRef.current = setTimeout(() => {
-                  if (disposedRef.current) return
                   floating.context.onOpenChange(true, event, 'hover')
                 }, restMs)
               }
             }
           : undefined,
-        // called when mouse leaves a trigger element
         onLeaveReference: hoverable
           ? () => {
+              onTriggerRef.current = false
               clearTimeout(restTimerRef.current)
-              if (!open) return
-              switchingRef.current = true
-              pendingCloseRef.current = false
-              clearTimeout(switchTimerRef.current)
-              switchTimerRef.current = setTimeout(() => {
-                if (disposedRef.current) return
-                switchingRef.current = false
-                if (pendingCloseRef.current) {
-                  pendingCloseRef.current = false
-                  setOpen(false, 'hover')
-                }
-              }, 150)
             }
           : undefined,
       }
