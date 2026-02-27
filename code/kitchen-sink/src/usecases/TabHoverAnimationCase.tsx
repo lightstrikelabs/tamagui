@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import type { Popover as PopoverType } from 'tamagui'
+import { memo, useEffect, useRef, useState } from 'react'
 import {
   AnimatePresence,
   Button,
@@ -14,48 +13,29 @@ import {
 const TABS = ['Tab A', 'Tab B', 'Tab C', 'Tab D', 'Tab E']
 
 export function TabHoverAnimationCase() {
-  const [activeTab, setActiveTab] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<string | null>(null)
+  const [prevActiveTab, setPrevActiveTab] = useState<string | null>(null)
   const [going, setGoing] = useState(0)
-  const prevTab = useRef<string | null>(null)
-  const popoverRef = useRef<PopoverType>(null)
-  const buttonRefs = useRef<Record<string, HTMLElement | null>>({})
+
   const displayTab = useLastValueIf(activeTab, !!activeTab) ?? activeTab
 
-  useEffect(() => {
-    if (activeTab && prevTab.current && activeTab !== prevTab.current) {
-      const prevIdx = TABS.indexOf(prevTab.current)
-      const nextIdx = TABS.indexOf(activeTab)
-      if (prevIdx >= 0 && nextIdx >= 0) {
-        setGoing(nextIdx > prevIdx ? 1 : -1)
-      }
+  // compute going synchronously during render (not in useEffect)
+  // so exitStyle has the correct direction immediately
+  if (activeTab && prevActiveTab && activeTab !== prevActiveTab) {
+    const prevIdx = TABS.indexOf(prevActiveTab)
+    const nextIdx = TABS.indexOf(activeTab)
+    const nextGoing = nextIdx > prevIdx ? 1 : -1
+    if (nextGoing !== going && prevIdx >= 0 && nextIdx >= 0) {
+      setGoing(nextGoing)
     }
-    if (activeTab) {
-      prevTab.current = activeTab
-    }
-  }, [activeTab])
+  }
 
   useEffect(() => {
     if (activeTab) {
-      setOpen(true)
-    } else {
-      setOpen(false)
+      setPrevActiveTab(activeTab)
     }
   }, [activeTab])
-
-  const handleMouseEnter = useCallback((tab: string) => {
-    setActiveTab(tab)
-    const el = buttonRefs.current[tab]
-    if (el && popoverRef.current) {
-      const rect = el.getBoundingClientRect()
-      popoverRef.current.anchorTo({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      })
-    }
-  }, [])
 
   return (
     <YStack gap="$4" padding="$4">
@@ -63,42 +43,54 @@ export function TabHoverAnimationCase() {
         Direction: {going}
       </SizableText>
 
-      <Popover ref={popoverRef} open={open} onOpenChange={setOpen} hoverable>
-        <Popover.Trigger>
-          <XStack gap="$2">
-            {TABS.map((tab) => (
+      <Popover
+        scope="tab-hover-test"
+        open={open}
+        onOpenChange={setOpen}
+        hoverable
+        placement="top"
+        offset={8}
+      >
+        <XStack gap="$2">
+          {TABS.map((tab) => (
+            <Popover.Trigger
+              key={tab}
+              scope="tab-hover-test"
+              asChild="except-style"
+              onMouseEnter={() => setActiveTab(tab)}
+            >
               <Button
-                key={tab}
                 id={`tab-${tab.replace(' ', '-').toLowerCase()}`}
                 data-testid={`tab-${tab.replace(' ', '-').toLowerCase()}`}
                 size="$3"
-                ref={(el: any) => {
-                  buttonRefs.current[tab] = el as HTMLElement
-                }}
-                onMouseEnter={() => handleMouseEnter(tab)}
-                onMouseLeave={() => setActiveTab(null)}
                 theme={activeTab === tab ? 'blue' : undefined}
               >
                 {tab}
               </Button>
-            ))}
-          </XStack>
-        </Popover.Trigger>
+            </Popover.Trigger>
+          ))}
+        </XStack>
 
         <Popover.Content
           id="hover-content"
           data-testid="hover-content"
           animatePosition
+          unstyled
+          disableFocusScope
           animateOnly={['transform', 'opacity']}
-          elevation="$4"
-          padding="$3"
-          borderRadius="$4"
-          enterStyle={{ opacity: 0, y: -5 }}
-          exitStyle={{ opacity: 0, y: -5 }}
+          opacity={1}
+          enterStyle={{ opacity: 0, y: -4 }}
+          exitStyle={{ opacity: 0, y: 6 }}
           transition="500ms"
-          bg="red"
         >
-          <YStack overflow="hidden" width={250} height={120}>
+          <YStack
+            width={250}
+            height={120}
+            rounded="$4"
+            bg="$color3"
+            elevation="$4"
+            overflow="hidden"
+          >
             <AnimatePresence initial={false} custom={{ going }}>
               {open && !!displayTab && (
                 <SlideFrame
@@ -136,6 +128,8 @@ const SlideFrame = styled(YStack, {
   position: 'absolute',
   inset: 0,
   z: 1,
+  x: 0,
+  opacity: 1,
 
   variants: {
     going: {

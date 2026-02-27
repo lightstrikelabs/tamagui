@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { setupPage } from './test-utils'
 
+test.use({
+  viewport: { width: 600, height: 400 },
+  launchOptions: {
+    args: ['--window-position=1400,700', '--window-size=620,420'],
+  },
+})
+
 test.beforeEach(async ({ page }) => {
   await setupPage(page, { name: 'TabHoverAnimationCase', type: 'useCase' })
   await page.waitForTimeout(500)
@@ -126,6 +133,54 @@ test('direction: exiting content slides opposite to entering content', async ({
   // going direction should be 1 (rightward)
   const going = await getGoingDirection(page)
   expect(going).toBe(1)
+})
+
+test('direction: exiting element keeps original direction when going reverses', async ({
+  page,
+}) => {
+  // hover Tab A → wait for it to appear
+  await hoverTab(page, 'tab-tab-a')
+  await page.waitForTimeout(300)
+
+  // collect console logs
+  const consoleLogs: string[] = []
+  page.on('console', (msg: any) => {
+    if (msg.text().includes('[exit-debug]')) {
+      consoleLogs.push(msg.text())
+    }
+  })
+
+  // hover Tab E → Tab A starts exiting LEFT (going=1, exitStyle x=-100)
+  await hoverTab(page, 'tab-tab-e')
+  await page.waitForTimeout(80) // let exit animation start
+
+  // hover Tab B → going changes to -1
+  // BUG: this should NOT change Tab A's exit direction
+  await hoverTab(page, 'tab-tab-b')
+  await page.waitForTimeout(30)
+
+  // print debug logs
+  for (const log of consoleLogs) {
+    console.log(log)
+  }
+
+  // sample Tab A's current translateX - it should be NEGATIVE (exiting left)
+  const tabAX = await page.evaluate(() => {
+    const els = document.querySelectorAll('[data-testid="slide-content"]')
+    for (const el of els) {
+      if ((el as HTMLElement).dataset.tab === 'Tab A') {
+        const matrix = new DOMMatrix(getComputedStyle(el).transform)
+        return matrix.m41
+      }
+    }
+    return null
+  })
+
+  // Tab A should be exiting LEFT (negative x), not RIGHT (positive x)
+  // null means it already exited (which is fine)
+  if (tabAX !== null) {
+    expect(tabAX, `Tab A x=${tabAX}, should be negative (exiting left)`).toBeLessThan(0)
+  }
 })
 
 // === Bug 2: CSS driver x animation ===
