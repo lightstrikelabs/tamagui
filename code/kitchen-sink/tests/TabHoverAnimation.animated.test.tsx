@@ -166,9 +166,10 @@ test('direction: exiting element keeps original direction when going reverses', 
 
   // sample Tab A's current translateX - it should be NEGATIVE (exiting left)
   const tabAX = await page.evaluate(() => {
-    const els = document.querySelectorAll('[data-testid="slide-content"]')
-    for (const el of els) {
-      if ((el as HTMLElement).dataset.tab === 'Tab A') {
+    const els = Array.from(document.querySelectorAll('[data-testid="slide-content"]'))
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i] as HTMLElement
+      if (el.dataset.tab === 'Tab A') {
         const matrix = new DOMMatrix(getComputedStyle(el).transform)
         return matrix.m41
       }
