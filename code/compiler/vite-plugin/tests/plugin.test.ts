@@ -1,5 +1,13 @@
-import { describe, expect, test } from 'vitest'
-import { tamaguiPlugin } from '../src/plugin'
+import { describe, expect, test, vi } from 'vitest'
+
+vi.mock('../src/loadTamagui', () => ({
+  loadTamaguiBuildConfig: vi.fn(),
+  getLoadPromise: vi.fn(() => null),
+  getTamaguiOptions: vi.fn(() => null),
+  ensureFullConfigLoaded: vi.fn(),
+}))
+
+const { tamaguiPlugin } = await import('../src/plugin')
 
 const expectedPluginNames = ['tamagui', 'tamagui-rnw-lite', 'tamagui-extract']
 
