@@ -127,10 +127,19 @@ test.describe('Animation Behavior', () => {
 
     const endScale = samples[samples.length - 1]
     expect(endScale, 'End').toBeCloseTo(END, 1)
-    const hasIntermediate = samples.some(
+
+    // verify real interpolation: multiple frames between start and end
+    const intermediates = samples.filter(
       (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
     )
-    expect(hasIntermediate, `Should have intermediate scale values`).toBe(true)
+    expect(
+      intermediates.length,
+      `Should have multiple intermediate scale frames (got ${intermediates.length})`
+    ).toBeGreaterThanOrEqual(2)
+
+    // verify animation doesn't complete instantly
+    const earlyEnd = samples.slice(0, 3).every((v) => Math.abs(v - END) < TOLERANCE)
+    expect(earlyEnd, 'Scale animation should not complete in first 3 frames').toBe(false)
   })
 
   test('animation with delay completes correctly', async ({ page }) => {

@@ -62,18 +62,22 @@ test.describe('animatedBy prop', () => {
       `Should reach end state (${END}), got ${finalOpacity.toFixed(2)}`
     ).toBeCloseTo(END, 1)
 
-    // key test: if animation driver works, at least one sample should be intermediate
-    const hasIntermediate = samples.some(
+    // verify animation driver is working: must have intermediate values (not instant snap)
+    const intermediates = samples.filter(
       (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
     )
     expect(
-      hasIntermediate,
-      `With animatedBy="default", should see intermediate values during animation. ` +
+      intermediates.length,
+      `Should have multiple intermediate frames (got ${intermediates.length}). ` +
         `Samples: [${samples
-          .slice(0, 5)
+          .slice(0, 8)
           .map((s) => s.toFixed(2))
           .join(', ')}...]`
-    ).toBe(true)
+    ).toBeGreaterThanOrEqual(2)
+
+    // verify first few samples haven't already jumped to end (animation has real duration)
+    const earlyEnd = samples.slice(0, 3).every((v) => Math.abs(v - END) < TOLERANCE)
+    expect(earlyEnd, 'Animation should not complete in first 3 frames').toBe(false)
   })
 
   test('context default (no animatedBy) also animates', async ({ page }) => {
@@ -103,8 +107,15 @@ test.describe('animatedBy prop', () => {
 
     const finalOpacity = samples[samples.length - 1]
     expect(finalOpacity, 'End opacity').toBeCloseTo(END, 1)
-    const hasProgress = samples.some((v) => v > START + TOLERANCE)
-    expect(hasProgress, `Context default should show animation progress`).toBe(true)
+
+    // verify real animation duration: multiple intermediate frames, not instant
+    const intermediates = samples.filter(
+      (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
+    )
+    expect(
+      intermediates.length,
+      `Context default should have multiple intermediate frames`
+    ).toBeGreaterThanOrEqual(2)
   })
 
   test('both elements animate in sync', async ({ page }) => {

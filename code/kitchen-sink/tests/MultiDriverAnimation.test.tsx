@@ -105,14 +105,21 @@ test.describe('Multi-driver animation config', () => {
 
     const finalOpacity = samples[samples.length - 1]
     expect(finalOpacity).toBeGreaterThan(0.9)
-    const hasIntermediate = samples.some((v) => v > 0.3 + 0.05 && v < 0.95)
+
+    // verify motion driver: multiple frames of interpolation between 0.3 and ~1.0
+    const intermediates = samples.filter((v) => v > 0.35 && v < 0.95)
     expect(
-      hasIntermediate,
-      `Default should use motion (samples: [${samples
-        .slice(0, 5)
-        .map((s) => s.toFixed(2))
-        .join(', ')}...])`
-    ).toBe(true)
+      intermediates.length,
+      `Default should use motion with real interpolation (got ${intermediates.length} intermediate frames). ` +
+        `Samples: [${samples
+          .slice(0, 8)
+          .map((s) => s.toFixed(2))
+          .join(', ')}...]`
+    ).toBeGreaterThanOrEqual(2)
+
+    // first frames should still be near start (animation has real duration)
+    const earlyEnd = samples.slice(0, 3).every((v) => v > 0.95)
+    expect(earlyEnd, 'Animation should not complete in first 3 frames').toBe(false)
   })
 
   test('different drivers produce different animation behavior', async ({ page }) => {
