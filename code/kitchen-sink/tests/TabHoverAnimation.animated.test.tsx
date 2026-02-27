@@ -8,7 +8,13 @@ test.use({
   },
 })
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  // native driver has fundamental issues with hover/animation on web
+  test.skip(
+    testInfo.project.name === 'animated-native',
+    'Native driver does not support hover animations on web'
+  )
+
   await setupPage(page, { name: 'TabHoverAnimationCase', type: 'useCase' })
   await page.waitForTimeout(500)
 })

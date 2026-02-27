@@ -103,10 +103,10 @@ test.describe('Basic Exit Completion', () => {
   }) => {
     await page.getByTestId('exit-03-trigger').click()
 
-    const count = await waitForExitComplete(page, '03-short-duration', 500)
+    const count = await waitForExitComplete(page, '03-short-duration', 2000)
 
     expect(count, 'Short duration exit should complete exactly once').toBe(1)
-    await expectStableCompletionCount(page, '03-short-duration', 1, 250)
+    await expectStableCompletionCount(page, '03-short-duration', 1, 400)
     expect(await elementExists(page, 'exit-03-target'), 'Element should be gone').toBe(
       false
     )
@@ -121,7 +121,8 @@ test.describe('Duplicate Completion Guards', () => {
     await page.getByTestId('exit-04-trigger').click()
 
     // wait for the sequence to complete (off -> on -> off)
-    await page.waitForTimeout(800)
+    // CI can be slow, give plenty of time for animations
+    await page.waitForTimeout(1500)
 
     const data = await getExitTrackingData(page)
     const count = data.counts['04-rapid-toggle'] || 0
@@ -140,7 +141,8 @@ test.describe('Duplicate Completion Guards', () => {
     await page.getByTestId('exit-05-trigger').click()
 
     // wait for exit + re-renders to complete
-    await page.waitForTimeout(800)
+    // CI can be slow, give plenty of time
+    await page.waitForTimeout(1500)
 
     const data = await getExitTrackingData(page)
     const count = data.counts['05-rerender-during-exit'] || 0

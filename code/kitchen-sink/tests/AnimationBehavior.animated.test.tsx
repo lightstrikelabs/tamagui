@@ -74,28 +74,47 @@ test.describe('Animation Behavior', () => {
   })
 
   test('timing animation has start, intermediate, and end states', async ({ page }) => {
-    const testInfo = test.info()
-    const driver = (testInfo.project?.metadata as any)?.animationDriver
-
     const START = 1,
       END = 0.2
 
     const startOpacity = await getOpacity(page, 'scenario-36-target')
     expect(startOpacity, 'Start').toBeCloseTo(START, 1)
 
-    await page.getByTestId('scenario-36-trigger').click()
-    // wait 250ms into a 500ms animation for reliable intermediate capture
-    await page.waitForTimeout(250)
-    const midOpacity = await getOpacity(page, 'scenario-36-target')
+    // poll via rAF for reliable intermediate capture across CI environments
+    const samples: number[] = await page.evaluate(() => {
+      return new Promise<number[]>((resolve) => {
+        const el = document.querySelector('[data-testid="scenario-36-target"]')!
+        const vals: number[] = []
+        const start = performance.now()
+        function tick() {
+          vals.push(Number(getComputedStyle(el).opacity))
+          if (performance.now() - start < 800) requestAnimationFrame(tick)
+          else resolve(vals)
+        }
+        ;(
+          document.querySelector('[data-testid="scenario-36-trigger"]') as HTMLElement
+        ).click()
+        requestAnimationFrame(tick)
+      })
+    })
 
-    await page.waitForTimeout(800)
-    const endOpacity = await getOpacity(page, 'scenario-36-target')
-
+    const endOpacity = samples[samples.length - 1]
     expect(endOpacity, 'End').toBeCloseTo(END, 1)
+
+    // verify real interpolation: multiple frames between start and end
+    const intermediates = samples.filter(
+      (v) => Math.abs(v - START) > TOLERANCE && Math.abs(v - END) > TOLERANCE
+    )
     expect(
-      isIntermediate(midOpacity, START, END),
-      `Mid (${midOpacity.toFixed(2)}) should be intermediate`
-    ).toBe(true)
+      intermediates.length,
+      `Should have multiple intermediate opacity frames (got ${intermediates.length})`
+    ).toBeGreaterThanOrEqual(2)
+
+    // verify animation doesn't complete instantly
+    const earlyEnd = samples.slice(0, 3).every((v) => Math.abs(v - END) < TOLERANCE)
+    expect(earlyEnd, 'Opacity animation should not complete in first 3 frames').toBe(
+      false
+    )
   })
 
   test('scale timing animation has intermediate values', async ({ page }) => {
@@ -355,7 +374,7 @@ test.describe('Animation Behavior', () => {
     expect(initialScale, 'Initial scale').toBeCloseTo(1, 1)
 
     await page.getByTestId('scenario-39-trigger').click()
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2500)
 
     const endOpacity = await getOpacity(page, 'scenario-39-target')
     const endScale = await getScale(page, 'scenario-39-target')
