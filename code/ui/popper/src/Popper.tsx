@@ -605,14 +605,37 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
       }
     }, [needsMeasure, animatePos, x, y])
 
-    // default to not showing if positioned at 0, 0
-    const hide = x === 0 && y === 0
+    // track whether we've ever been positioned. floating-ui resets isPositioned
+    // to false when open changes to false (e.g. hoverable safePolygon briefly
+    // closing). without this, the brief close disables animation and causes
+    // position jumps when the popover reopens at the new trigger.
+    const hasBeenPositioned = React.useRef(false)
+    const lastGoodPosition = React.useRef({ x: 0, y: 0 })
+    if (isPositioned && (x !== 0 || y !== 0)) {
+      hasBeenPositioned.current = true
+      lastGoodPosition.current = { x, y }
+    }
+
+    // when floating-ui resets (close/reopen cycle), use the last known good
+    // position instead of 0,0 to prevent the animation driver from animating
+    // from origin or jumping
+    const effectiveX =
+      !isPositioned && hasBeenPositioned.current
+        ? lastGoodPosition.current.x
+        : x
+    const effectiveY =
+      !isPositioned && hasBeenPositioned.current
+        ? lastGoodPosition.current.y
+        : y
+
+    // only hide before the very first positioning
+    const hide = !hasBeenPositioned.current && effectiveX === 0 && effectiveY === 0
 
     const disableAnimationProp =
       // if they want to animate also when re-positioning allow it
       animatePos === 'even-when-repositioning'
         ? needsMeasure
-        : !isPositioned || needsMeasure
+        : (!hasBeenPositioned.current && !isPositioned) || needsMeasure
 
     const [disableAnimation, setDisableAnimation] = React.useState(disableAnimationProp)
 
@@ -621,12 +644,9 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
       setDisableAnimation(disableAnimationProp)
     }, [disableAnimationProp])
 
-    // when position not calculated yet (hide=true means x===0 && y===0),
-    // don't pass x/y to avoid motion driver capturing 0,0 as starting position
-    // and then animating from 0,0 to the real position (causes visual jump)
     const positionProps = hide
       ? {} // omit x/y when hiding - prevents motion from animating from origin
-      : { x: x || 0, y: y || 0 }
+      : { x: effectiveX || 0, y: effectiveY || 0 }
 
     const frameProps = {
       ref: contentRefs,
