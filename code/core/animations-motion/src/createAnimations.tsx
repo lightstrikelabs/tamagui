@@ -57,7 +57,7 @@ const MotionValueStrategy = new WeakMap<MotionValue, AnimatedNumberStrategy>()
 // env flags to disable individual motion driver hacks for testing
 // set TAMAGUI_MOTION_HACK_FLAGS=1,2,3 to DISABLE specific hacks
 const disabledHacks = new Set(
-  (typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS || '')
+  ((typeof process !== 'undefined' && process.env.TAMAGUI_MOTION_HACK_FLAGS) || '')
     .split(',')
     .filter(Boolean)
 )
@@ -418,12 +418,10 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
 
               // hack 7: TypeError guard for controls.state access
               const isRunning = HACK_ISRUNNING_GUARD
-                ? (
-                    // @ts-expect-error animations prop exists at runtime
-                    controls.current?.animations?.length === 0
-                      ? false
-                      : controls.current?.state === 'running'
-                  )
+                ? // @ts-expect-error animations prop exists at runtime
+                  controls.current?.animations?.length === 0
+                  ? false
+                  : controls.current?.state === 'running'
                 : controls.current?.state === 'running'
               const targetTransform =
                 typeof diff.transform === 'string' ? diff.transform : null
@@ -526,7 +524,12 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               lastAnimateAt.current = Date.now()
 
               // hack 5: prevent flash when motion.dev removes WAAPI after completion
-              if (HACK_INLINE_COMMIT && isPopperElement && !isCurrentlyExiting && fixedDiff.transform) {
+              if (
+                HACK_INLINE_COMMIT &&
+                isPopperElement &&
+                !isCurrentlyExiting &&
+                fixedDiff.transform
+              ) {
                 const target =
                   typeof fixedDiff.transform === 'string'
                     ? fixedDiff.transform

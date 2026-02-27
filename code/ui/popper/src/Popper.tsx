@@ -528,9 +528,7 @@ export const PopperAnchor = YStack.styleable<PopperAnchorExtraProps>(
               context.onHoverReference?.(e.nativeEvent)
               const el = ref.current
               setTimeout(() => {
-                el?.dispatchEvent(
-                  new MouseEvent('mouseenter', { bubbles: false })
-                )
+                el?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
               }, 0)
             }
           },
@@ -637,13 +635,9 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
     // position instead of 0,0 to prevent the animation driver from animating
     // from origin or jumping
     const effectiveX =
-      !isPositioned && hasBeenPositioned.current
-        ? lastGoodPosition.current.x
-        : x
+      !isPositioned && hasBeenPositioned.current ? lastGoodPosition.current.x : x
     const effectiveY =
-      !isPositioned && hasBeenPositioned.current
-        ? lastGoodPosition.current.y
-        : y
+      !isPositioned && hasBeenPositioned.current ? lastGoodPosition.current.y : y
 
     // only hide before the very first positioning
     const hide = !hasBeenPositioned.current && effectiveX === 0 && effectiveY === 0

@@ -69,12 +69,9 @@ export const useFloatingContext = ({
         onHoverReference: hoverable
           ? (event: any) => {
               if (open) return
-              const delay =
-                typeof hoverable === 'object' ? hoverable.delay : 0
+              const delay = typeof hoverable === 'object' ? hoverable.delay : 0
               const openDelay =
-                typeof delay === 'number'
-                  ? delay
-                  : (delay as any)?.open ?? 0
+                typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
               if (!openDelay) {
                 floating.context.onOpenChange(true, event, 'hover')
               }
