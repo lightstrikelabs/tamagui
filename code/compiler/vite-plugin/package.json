@@ -29,7 +29,10 @@
     "build": "tamagui-build --skip-native",
     "watch": "tamagui-build --skip-native --watch",
     "clean": "tamagui-build clean",
-    "clean:build": "tamagui-build clean:build"
+    "clean:build": "tamagui-build clean:build",
+    "test": "vitest run",
+    "test:web": "bun run test",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tamagui/fake-react-native": "workspace:*",
@@ -45,7 +48,8 @@
   },
   "devDependencies": {
     "@tamagui/build": "workspace:*",
-    "vite": "^7.1.12"
+    "vite": "^7.1.12",
+    "vitest": "4.0.4"
   },
   "peerDependencies": {
     "vite": "*"
