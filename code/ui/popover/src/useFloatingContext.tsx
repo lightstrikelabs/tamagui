@@ -61,13 +61,21 @@ export const useFloatingContext = ({
         open,
         getReferenceProps,
         getFloatingProps,
-        // multi-trigger support: useHover attaches DOM mouseenter listeners via
-        // useEffect. when PopperAnchor switches the reference element on hover,
-        // the mouseenter fires before the listener is attached. this callback
-        // lets PopperAnchor directly trigger open for hoverable popovers.
+        // multi-trigger: useHover attaches DOM mouseenter listeners via useEffect.
+        // when PopperAnchor switches the reference on hover, the event fires
+        // before the listener is attached. this opens immediately for non-delay
+        // hoverable. delay case is handled by a synthetic mouseenter dispatch
+        // in PopperAnchor that lets useHover process it natively.
         onHoverReference: hoverable
           ? (event: any) => {
-              if (!open) {
+              if (open) return
+              const delay =
+                typeof hoverable === 'object' ? hoverable.delay : 0
+              const openDelay =
+                typeof delay === 'number'
+                  ? delay
+                  : (delay as any)?.open ?? 0
+              if (!openDelay) {
                 floating.context.onOpenChange(true, event, 'hover')
               }
             }
