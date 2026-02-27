@@ -340,9 +340,10 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
 
               // guard against GroupAnimationWithThen.getAll crashing on undefined animations
               // @ts-expect-error animations prop exists at runtime
-              const isRunning = controls.current?.animations?.length === 0
-                ? false
-                : controls.current?.state === 'running'
+              const isRunning =
+                controls.current?.animations?.length === 0
+                  ? false
+                  : controls.current?.state === 'running'
               const targetTransform =
                 typeof diff.transform === 'string' ? diff.transform : null
 

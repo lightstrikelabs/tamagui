@@ -81,13 +81,18 @@ export async function getBoundingRect(
   return page.evaluate((sel) => {
     const el = document.querySelector(sel)
     if (!el) return null
-    return new Promise<{ x: number; y: number; width: number; height: number }>((resolve) => {
-      const io = new IntersectionObserver((entries) => {
-        io.disconnect()
-        const r = entries[0].boundingClientRect
-        resolve({ x: r.x, y: r.y, width: r.width, height: r.height })
-      }, { threshold: 0 })
-      io.observe(el)
-    })
+    return new Promise<{ x: number; y: number; width: number; height: number }>(
+      (resolve) => {
+        const io = new IntersectionObserver(
+          (entries) => {
+            io.disconnect()
+            const r = entries[0].boundingClientRect
+            resolve({ x: r.x, y: r.y, width: r.width, height: r.height })
+          },
+          { threshold: 0 }
+        )
+        io.observe(el)
+      }
+    )
   }, selector)
 }

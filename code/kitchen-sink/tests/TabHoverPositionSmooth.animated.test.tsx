@@ -7,7 +7,11 @@ import { setupPage } from './test-utils'
  * We detect this by sampling translateX every frame and checking for smooth interpolation.
  */
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  test.skip(
+    testInfo.project.name === 'animated-native',
+    'Native driver does not support hover animations on web'
+  )
   await setupPage(page, { name: 'TabHoverAnimationCase', type: 'useCase' })
   await page.waitForTimeout(500)
 })
