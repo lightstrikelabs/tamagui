@@ -445,6 +445,25 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               controls.current = startedControls
               lastAnimateAt.current = Date.now()
 
+              // commit final transform to inline style on completion to prevent
+              // single-frame flash back to origin when WAAPI removes the animation
+              if (isPopperElement && !isCurrentlyExiting && fixedDiff.transform) {
+                const target =
+                  typeof fixedDiff.transform === 'string'
+                    ? fixedDiff.transform
+                    : Array.isArray(fixedDiff.transform)
+                      ? fixedDiff.transform[fixedDiff.transform.length - 1]
+                      : null
+                if (typeof target === 'string') {
+                  startedControls.finished
+                    .then(() => {
+                      if (node.isConnected) {
+                        node.style.transform = target
+                      }
+                    })
+                    .catch(() => {})
+                }
+              }
             }
           }
 

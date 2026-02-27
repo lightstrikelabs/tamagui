@@ -69,3 +69,25 @@ export async function setupPage(
 
   return page
 }
+
+/**
+ * get bounding rect without forcing reflow using IntersectionObserver trick.
+ * runs in the browser context via page.evaluate.
+ */
+export async function getBoundingRect(
+  page: Page,
+  selector: string
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel)
+    if (!el) return null
+    return new Promise<{ x: number; y: number; width: number; height: number }>((resolve) => {
+      const io = new IntersectionObserver((entries) => {
+        io.disconnect()
+        const r = entries[0].boundingClientRect
+        resolve({ x: r.x, y: r.y, width: r.width, height: r.height })
+      }, { threshold: 0 })
+      io.observe(el)
+    })
+  }, selector)
+}

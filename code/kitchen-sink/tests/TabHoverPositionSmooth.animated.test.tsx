@@ -12,7 +12,8 @@ test.beforeEach(async ({ page }) => {
   await page.waitForTimeout(500)
 })
 
-// start continuous position sampling via rAF
+// start continuous position sampling via rAF using getBoundingClientRect
+// (avoids getComputedStyle which forces style recalc and can interfere with animations)
 async function startSampling(page: any) {
   await page.evaluate(() => {
     const el = document.querySelector('[data-popper-animate-position]')
@@ -26,8 +27,7 @@ async function startSampling(page: any) {
     }
     function tick() {
       if (!running) return
-      const matrix = new DOMMatrix(getComputedStyle(el!).transform)
-      log.push({ t: performance.now() - start, x: matrix.m41 })
+      log.push({ t: performance.now() - start, x: el!.getBoundingClientRect().left })
       requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
