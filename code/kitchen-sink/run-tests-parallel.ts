@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-import { spawn } from 'bun'
+import { spawn, type Subprocess } from 'bun'
 
 const DRIVERS = ['css', 'native', 'reanimated', 'motion'] as const
+const PORT = process.env.PORT || '9000'
 const COLORS = {
   css: '\x1b[36m', // cyan
   native: '\x1b[33m', // yellow
@@ -11,6 +12,28 @@ const COLORS = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   dim: '\x1b[2m',
+}
+
+async function waitForServer(url: string, timeoutMs = 120_000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) return
+    } catch {}
+    await Bun.sleep(500)
+  }
+  throw new Error(`server not ready after ${timeoutMs}ms`)
+}
+
+function startWebServer(): Subprocess {
+  return spawn({
+    cmd: ['bun', 'run', 'start:web'],
+    cwd: import.meta.dir,
+    env: { ...process.env, PORT },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
 }
 
 async function runPlaywright(args: string[], env?: Record<string, string>) {
@@ -97,19 +120,28 @@ async function runDriver(
 async function main() {
   console.log(`${COLORS.dim}Running default + webkit tests...${COLORS.reset}\n`)
 
-  // run default and webkit first
+  // run default and webkit first (playwright starts its own server)
   const defaultCode = await runPlaywright(['--project=default', '--project=webkit'])
   if (defaultCode !== 0) {
     console.error(`\n${COLORS.red}Default/webkit tests failed${COLORS.reset}`)
     process.exit(1)
   }
 
+  // start web server once before parallel drivers so they all reuse it
+  console.log(
+    `\n${COLORS.dim}Starting web server for parallel animated tests...${COLORS.reset}`
+  )
+  const server = startWebServer()
+  await waitForServer(`http://localhost:${PORT}`)
+
   console.log(
     `\n${COLORS.dim}Running animated tests in parallel (${DRIVERS.join(', ')})...${COLORS.reset}\n`
   )
 
-  // run all animated drivers in parallel
+  // run all animated drivers in parallel — they reuse the running server
   const results = await Promise.all(DRIVERS.map(runDriver))
+
+  server.kill()
 
   // summary
   console.log(`\n${COLORS.dim}${'─'.repeat(60)}${COLORS.reset}`)
