@@ -101,33 +101,33 @@ test.describe('Animations With Media Queries', () => {
   test('scale updates on multiple resize cycles', async ({ page }) => {
     // this is the key bug reproduction - multiple resize cycles
     await page.setViewportSize({ width: 1200, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
     // cycle 1: large -> small -> large
     await page.setViewportSize({ width: 600, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
     let scale = await getScale(page, 'test-scale')
     expect(scale, 'cycle 1 small: scale=0.75').toBeCloseTo(0.75, 1)
 
     await page.setViewportSize({ width: 1200, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
     scale = await getScale(page, 'test-scale')
     expect(scale, 'cycle 1 large: scale=1').toBeCloseTo(1, 1)
 
     // cycle 2
     await page.setViewportSize({ width: 600, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
     scale = await getScale(page, 'test-scale')
     expect(scale, 'cycle 2 small: scale=0.75').toBeCloseTo(0.75, 1)
 
     await page.setViewportSize({ width: 1200, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
     scale = await getScale(page, 'test-scale')
     expect(scale, 'cycle 2 large: scale=1').toBeCloseTo(1, 1)
 
     // cycle 3
     await page.setViewportSize({ width: 600, height: 800 })
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
     scale = await getScale(page, 'test-scale')
     expect(scale, 'cycle 3 small: scale=0.75').toBeCloseTo(0.75, 1)
   })

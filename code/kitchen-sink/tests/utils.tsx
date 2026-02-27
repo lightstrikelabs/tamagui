@@ -13,16 +13,20 @@ type InteractionOpts = {
 export async function whilePressed<A>(
   locator: Locator,
   cb: () => Promise<A>,
-  opts?: InteractionOpts
+  _opts?: InteractionOpts
 ) {
-  const delay = opts?.delay ?? 1000
-  const promise = locator.click({
-    force: true,
-    ...opts,
-  })
-  await new Promise((res) => setTimeout(res, delay - 150))
+  // use explicit mouse.down/up instead of click({ delay }) for reliable
+  // pressed state testing - click timing is imprecise on slow CI
+  const box = await locator.boundingBox()
+  if (!box) throw new Error('Element not visible')
+  const page = locator.page()
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.waitForTimeout(150)
   const res = await cb()
-  await promise
+  await page.mouse.up()
   return res
 }
 
