@@ -12,7 +12,8 @@ import {
   type StaticConfig,
   type TamaguiComponentState,
 } from '@tamagui/web'
-import { basename, relative } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, resolve, relative } from 'node:path'
 import type { ViewStyle } from 'react-native'
 
 import { FAILED_EVAL } from '../constants'
@@ -26,7 +27,7 @@ import type {
   TamaguiOptionsWithFileInfo,
   Ternary,
 } from '../types'
-import type { TamaguiProjectInfo } from './bundleConfig'
+import type { LoadedComponents, TamaguiProjectInfo } from './bundleConfig'
 import { createEvaluator, createSafeEvaluator } from './createEvaluator'
 import { evaluateAstNode } from './evaluateAstNode'
 import {
@@ -136,6 +137,43 @@ export function createExtractor(
 
   let projectInfo: TamaguiProjectInfo | null = null
 
+  // cache of dynamically discovered styled components, keyed by absolute file path
+  // persists across files within the same worker/extractor instance
+  const dynamicComponentCache = new Map<string, LoadedComponents>()
+  const dynamicLoadingInProgress = new Set<string>()
+
+  function resolveImportPath(fromFile: string, importPath: string): string | null {
+    const dir = dirname(fromFile)
+    const base = resolve(dir, importPath)
+    const extensions = ['.tsx', '.ts', '.jsx', '.js']
+    for (const ext of extensions) {
+      const full = base + ext
+      if (existsSync(full)) return full
+    }
+    // try index files
+    for (const ext of extensions) {
+      const full = resolve(base, `index${ext}`)
+      if (existsSync(full)) return full
+    }
+    return null
+  }
+
+  const styledCheckCache = new Map<string, boolean>()
+
+  function mightHaveStyledComponents(filePath: string): boolean {
+    const cached = styledCheckCache.get(filePath)
+    if (cached !== undefined) return cached
+    try {
+      const content = readFileSync(filePath, 'utf-8')
+      const result = content.includes('styled(')
+      styledCheckCache.set(filePath, result)
+      return result
+    } catch {
+      styledCheckCache.set(filePath, false)
+      return false
+    }
+  }
+
   // we load tamagui delayed because we need to set some global/env stuff before importing
   // otherwise we'd import `rnw` and cause it to evaluate react-native-web which causes errors
 
@@ -200,6 +238,12 @@ export function createExtractor(
       platform,
       ...restProps
     } = options
+
+    // invalidate dynamic cache for this file on re-parse (HMR)
+    if (sourcePath && dynamicComponentCache.has(sourcePath)) {
+      dynamicComponentCache.delete(sourcePath)
+      styledCheckCache.delete(sourcePath)
+    }
 
     if (sourcePath.includes('.tamagui-dynamic-eval')) {
       return null
@@ -398,12 +442,12 @@ export function createExtractor(
         logger.info(` - import via ${moduleName} ${valid}`)
       }
 
-      if (extractStyledDefinitions) {
-        if (valid) {
-          if (node.specifiers.some((specifier) => specifier.local.name === 'styled')) {
-            doesUseValidImport = true
-            break
-          }
+      if (extractStyledDefinitions && enableDynamicEvaluation) {
+        // check all imports for `styled`, not just valid packages
+        // styled( is basically guaranteed to be tamagui regardless of source
+        if (node.specifiers.some((specifier) => specifier.local.name === 'styled')) {
+          doesUseValidImport = true
+          // don't break - need to collect all import declarations for the styled() handler
         }
       }
 
@@ -423,7 +467,7 @@ export function createExtractor(
         }
         if (isValidComponent) {
           doesUseValidImport = true
-          break
+          if (!(extractStyledDefinitions && enableDynamicEvaluation)) break
         }
       }
     }
@@ -432,6 +476,36 @@ export function createExtractor(
       logger.info(
         `${JSON.stringify({ doesUseValidImport, hasImportedTheme }, null, 2)}\n`
       )
+    }
+
+    if (
+      !doesUseValidImport &&
+      extractStyledDefinitions &&
+      enableDynamicEvaluation &&
+      sourcePath
+    ) {
+      // check if any relative import is in the dynamic cache or has styled components
+      for (const bodyPath of body) {
+        if (bodyPath.type !== 'ImportDeclaration') continue
+        const node = (
+          'node' in bodyPath ? bodyPath.node : bodyPath
+        ) as t.ImportDeclaration
+        const moduleName = node.source.value
+        if (!moduleName.startsWith('.')) continue
+
+        const resolved = resolveImportPath(sourcePath, moduleName)
+        if (!resolved) continue
+
+        if (dynamicComponentCache.has(resolved)) {
+          doesUseValidImport = true
+          break
+        }
+
+        if (mightHaveStyledComponents(resolved)) {
+          doesUseValidImport = true
+          break
+        }
+      }
     }
 
     if (!doesUseValidImport) {
@@ -528,7 +602,7 @@ export function createExtractor(
           getValidImportedComponent(parentName) || getValidImportedComponent(variableName)
 
         if (!Component) {
-          if (enableDynamicEvaluation !== true) {
+          if (!enableDynamicEvaluation) {
             return
           }
 
@@ -712,6 +786,26 @@ export function createExtractor(
 
         res.styled++
 
+        // register so JSX handler can find this component (same-file and cross-file)
+        if (extractStyledDefinitions && enableDynamicEvaluation && Component) {
+          // add to allLoadedComponents with '' so getValidComponent matches when moduleName is ''
+          // (same-file styled components have '' as moduleName in JSX handler)
+          propsWithFileInfo.allLoadedComponents.push({
+            moduleName: '',
+            nameToInfo: { [variableName]: { staticConfig: Component.staticConfig } },
+          })
+
+          // also cache by file path so other files importing from this path can find it
+          if (sourcePath) {
+            let existing = dynamicComponentCache.get(sourcePath)
+            if (!existing) {
+              existing = { moduleName: sourcePath, nameToInfo: {} }
+              dynamicComponentCache.set(sourcePath, existing)
+            }
+            existing.nameToInfo[variableName] = { staticConfig: Component.staticConfig }
+          }
+        }
+
         if (shouldPrintDebug) {
           logger.info(`Extracted styled(${variableName})`)
         }
@@ -740,22 +834,77 @@ export function createExtractor(
         // validate its a proper import from tamagui (or internally inside tamagui)
         const binding = traversePath.scope.getBinding(node.name.name)
         let moduleName = ''
+        let dynamicComponent: { staticConfig: any } | null = null
 
         if (binding) {
           if (t.isImportDeclaration(binding.path.parent)) {
             moduleName = binding.path.parent.source.value
             if (!isValidImport(propsWithFileInfo, moduleName, binding.identifier.name)) {
-              if (shouldPrintDebug) {
-                logger.info(
-                  ` - Binding in component ${componentName} not valid import: "${binding.identifier.name}" isn't in ${moduleName}\n`
-                )
+              // fallback: try dynamic component cache for relative imports
+              if (enableDynamicEvaluation && moduleName.startsWith('.') && sourcePath) {
+                const resolved = resolveImportPath(sourcePath, moduleName)
+                if (resolved) {
+                  // check cache first
+                  const cached = dynamicComponentCache.get(resolved)
+                  if (cached?.nameToInfo[binding.identifier.name]) {
+                    dynamicComponent = cached.nameToInfo[binding.identifier.name]
+                  } else if (
+                    !dynamicLoadingInProgress.has(resolved) &&
+                    mightHaveStyledComponents(resolved)
+                  ) {
+                    // proactively load the file
+                    dynamicLoadingInProgress.add(resolved)
+                    try {
+                      const out = loadTamaguiSync({
+                        forceExports: true,
+                        components: [resolved],
+                      })
+                      if (out?.components) {
+                        for (const comp of out.components) {
+                          // merge into cache
+                          let existing = dynamicComponentCache.get(resolved)
+                          if (!existing) {
+                            existing = { moduleName: resolved, nameToInfo: {} }
+                            dynamicComponentCache.set(resolved, existing)
+                          }
+                          Object.assign(existing.nameToInfo, comp.nameToInfo)
+                          // also add to allLoadedComponents so getValidComponent works
+                          propsWithFileInfo.allLoadedComponents.push({
+                            moduleName: resolved,
+                            nameToInfo: comp.nameToInfo,
+                          })
+                        }
+                        const cachedNow = dynamicComponentCache.get(resolved)
+                        if (cachedNow?.nameToInfo[binding.identifier.name]) {
+                          dynamicComponent = cachedNow.nameToInfo[binding.identifier.name]
+                        }
+                      }
+                    } catch (err) {
+                      if (shouldPrintDebug) {
+                        logger.info(` - Failed to dynamically load ${resolved}: ${err}`)
+                      }
+                    } finally {
+                      dynamicLoadingInProgress.delete(resolved)
+                    }
+                  }
+                }
               }
-              return
+
+              if (!dynamicComponent) {
+                if (shouldPrintDebug) {
+                  logger.info(
+                    ` - Binding in component ${componentName} not valid import: "${binding.identifier.name}" isn't in ${moduleName}\n`
+                  )
+                }
+                return
+              }
             }
           }
         }
 
-        const component = getValidComponent(propsWithFileInfo, moduleName, node.name.name)
+        const component =
+          dynamicComponent ||
+          getValidComponent(propsWithFileInfo, moduleName, node.name.name)
         if (!component || !component.staticConfig) {
           if (shouldPrintDebug) {
             logger.info(`\n - No Tamagui conf for: ${node.name.name}\n`)
