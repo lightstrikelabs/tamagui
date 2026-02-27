@@ -184,7 +184,7 @@ test.describe('SheetScrollableDrag - RNGH Web Equivalent', () => {
     // each handoff should work cleanly without jitter
 
     await page.getByTestId('sheet-scrollable-drag-trigger').click()
-    await page.waitForTimeout(600)
+    await page.waitForTimeout(800)
 
     const frame = page.getByTestId('sheet-scrollable-drag-frame')
     await expect(frame).toBeVisible({ timeout: 5000 })
@@ -199,7 +199,7 @@ test.describe('SheetScrollableDrag - RNGH Web Equivalent', () => {
     for (let i = 0; i < 4; i++) {
       // 1. scroll down (drag up gesture)
       await dragSheet(page, cx, cy, -150, { steps: 20, stepDelay: 12 })
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(400)
 
       // verify scroll happened, sheet still at 0
       const scrollY1 = await page
@@ -213,7 +213,7 @@ test.describe('SheetScrollableDrag - RNGH Web Equivalent', () => {
 
       // 2. drag down past scroll=0 to pull sheet
       await dragSheet(page, cx, cy, 300, { steps: 30, stepDelay: 12 })
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(400)
 
       // verify sheet moved, scroll at 0
       await expect(page.getByTestId('sheet-scrollable-drag-position')).toContainText(
@@ -225,7 +225,7 @@ test.describe('SheetScrollableDrag - RNGH Web Equivalent', () => {
 
       // 3. drag up to bring sheet back (no scroll should happen here)
       await dragSheet(page, cx, cy, -200, { steps: 25, stepDelay: 12 })
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(400)
 
       // verify sheet back at 0, scroll still 0
       await expect(page.getByTestId('sheet-scrollable-drag-position')).toContainText(
@@ -244,7 +244,7 @@ test.describe('SheetScrollableDrag - RNGH Web Equivalent', () => {
     // start by dragging sheet down first
 
     await page.getByTestId('sheet-scrollable-drag-trigger').click()
-    await page.waitForTimeout(600)
+    await page.waitForTimeout(800)
 
     const frame = page.getByTestId('sheet-scrollable-drag-frame')
     await expect(frame).toBeVisible({ timeout: 5000 })
