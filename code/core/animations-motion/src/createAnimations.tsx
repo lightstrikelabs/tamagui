@@ -54,10 +54,6 @@ type TransitionAnimationOptions = AnimationOptions & {
 
 const MotionValueStrategy = new WeakMap<MotionValue, AnimatedNumberStrategy>()
 
-// regex to detect non-position transform operations (scale, rotate, skew, matrix, perspective)
-// used to identify position-only transforms for the popper animation fix
-const nonPositionTransformRe = /scale|rotate|skew|matrix|perspective/
-
 type AnimationProps = {
   doAnimate?: Record<string, unknown>
   dontAnimate?: Record<string, unknown>
@@ -319,110 +315,15 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                 controls.current.stop()
               }
 
-              // FIX: Handle animation interruption for position-only animations
-              // Only apply this fix when:
-              // 1. There's a running animation
-              // 2. The transform change is POSITION-ONLY (just translate, no scale/rotate/skew)
-              // 3. animatePosition is being used (Popper/Tooltip pattern)
-              // This fixes tooltip position jumping without breaking AnimatePresence scale/rotate animations
-              // NOTE: We check for animatePosition to avoid this fix causing jitter
-              // on components like the TAMAGUI logo dot indicator which also use translate-only transforms
-
               // guard against GroupAnimationWithThen.getAll crashing on undefined animations
               // @ts-expect-error animations prop exists at runtime
               const isRunning =
                 controls.current?.animations?.length === 0
                   ? false
                   : controls.current?.state === 'running'
-              const targetTransform =
-                typeof diff.transform === 'string' ? diff.transform : null
 
-              // only apply position fix for translate-only transforms
-              const isPositionOnlyTransform =
-                targetTransform &&
-                targetTransform.includes('translate') &&
-                !nonPositionTransformRe.test(targetTransform)
-
-              // Position fix for Popper/Tooltip elements with animatePosition.
-              // Only apply when:
-              // 1. Animation is actively running
-              // 2. Transform is position-only (translate without scale/rotate/etc)
-              // 3. Element has data-popper-animate-position attribute (set by Popper when
-              //    animatePosition is true)
-              //
-              // The issue: when a Popper animation is interrupted mid-flight, motion's
-              // animate() may start from wrong position causing jumps to origin.
-              //
-              // Why check data-popper-animate-position: This attribute is ONLY set on Popper
-              // elements that explicitly use animatePosition. Regular
-              // components like the logo Circle don't have this attribute, so they won't
-              // get this fix applied (which would cause jitter due to getComputedStyle
-              // overhead on rapid updates).
-
-              // check if this is a Popper element with animated position
               const isPopperElement = node.hasAttribute('data-popper-animate-position')
-
-              // also apply fix for AnimatePresence children that just finished entering
-              // this fixes roving tabs indicator jumping when rapidly switching
               const isEnteringPresenceChild = presence && justFinishedEntering
-
-              // position interruption fix: when a popper animation is interrupted mid-flight,
-              // motion's animate() may start from wrong position causing jumps to origin.
-              // disable with TAMAGUI_DISABLE_POSITION_FIX=1 to test if upstream fix works
-              if (
-                !process.env.TAMAGUI_DISABLE_POSITION_FIX &&
-                isRunning &&
-                controls.current &&
-                isPositionOnlyTransform &&
-                (isPopperElement || isEnteringPresenceChild)
-              ) {
-                const currentTransform = getComputedStyle(node).transform
-
-                if (currentTransform && currentTransform !== 'none') {
-                  const matrixMatch = currentTransform.match(
-                    /matrix\([^,]+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([^,]+),\s*([^)]+)\)/
-                  )
-
-                  if (matrixMatch) {
-                    // stop animation and preserve current position
-                    controls.current.stop()
-                    node.style.transform = currentTransform
-
-                    // animate from current matrix position to target
-                    const currentX = Number.parseFloat(matrixMatch[1])
-                    const currentY = Number.parseFloat(matrixMatch[2])
-                    const keyframeDiff = {
-                      ...diff,
-                      transform: [
-                        `translateX(${currentX}px) translateY(${currentY}px)`,
-                        targetTransform,
-                      ],
-                    }
-
-                    startedControls = animate(
-                      scope.current,
-                      keyframeDiff,
-                      animationOptions
-                    )
-                    controls.current = startedControls
-                    lastAnimateAt.current = Date.now()
-                    lastDontAnimate.current = dontAnimate ? { ...dontAnimate } : {}
-                    lastDoAnimate.current = doAnimate ? { ...doAnimate } : {}
-
-                    // commit target to inline on completion (same flash fix)
-                    if (isPopperElement && targetTransform) {
-                      startedControls.finished
-                        .then(() => {
-                          if (node.isConnected) {
-                            node.style.transform = targetTransform
-                          }
-                        })
-                        .catch(() => {})
-                    }
-                    return
-                  }
-                }
-              }
 
               // IMPORTANT: Spread to create mutable copy - style objects may be frozen
               // fix transparent colors to use rgba for motion.dev compatibility
@@ -431,6 +332,34 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                 lastDoAnimate.current,
                 doAnimate
               )
+
+              // position interruption fix: when an animation is interrupted mid-flight,
+              // commit the current animated position to inline style via WAAPI
+              // commitStyles(), then use it as the starting keyframe.
+              // no getComputedStyle needed — commitStyles writes directly to inline.
+              if (
+                isRunning &&
+                controls.current &&
+                fixedDiff.transform &&
+                (isPopperElement || isEnteringPresenceChild)
+              ) {
+                // commit current animated values to inline style via WAAPI
+                // @ts-expect-error accessing internal animations array
+                const anims = controls.current.animations
+                if (anims) {
+                  for (const anim of anims) {
+                    try {
+                      const raw = anim?.animation ?? anim
+                      raw?.commitStyles?.()
+                    } catch {}
+                  }
+                }
+                controls.current.cancel()
+                const committedTransform = node.style.transform
+                if (committedTransform) {
+                  fixedDiff.transform = [committedTransform, fixedDiff.transform]
+                }
+              }
 
               startedControls = animate(scope.current, fixedDiff, animationOptions)
               controls.current = startedControls
