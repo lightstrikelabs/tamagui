@@ -73,7 +73,9 @@ export type PopperContextSlowValue = PopperContextShared &
   Pick<
     UseFloatingReturn,
     'context' | 'getReferenceProps' | 'getFloatingProps' | 'strategy' | 'update' | 'refs'
-  >
+  > & {
+    onHoverReference?: (event: any) => void
+  }
 
 export const PopperContextSlow = createStyledContext<PopperContextSlowValue>(
   // since we always provide this we can avoid setting here
@@ -116,6 +118,7 @@ function getContextSlow(context: PopperContextValue): PopperContextSlowValue {
     getFloatingProps: context.getFloatingProps,
     getReferenceProps: context.getReferenceProps,
     open: context.open,
+    onHoverReference: (context as any).onHoverReference,
   }
 }
 
@@ -515,6 +518,12 @@ export const PopperAnchor = YStack.styleable<PopperAnchorExtraProps>(
 
               refProps.onPointerEnter?.(e)
               update()
+
+              // useHover attaches DOM mouseenter listeners via useEffect which
+              // runs after paint. since we just switched the reference element,
+              // the mouseenter already fired before the listener was attached.
+              // directly trigger open for hoverable popovers.
+              context.onHoverReference?.(e.nativeEvent)
             }
           },
           onMouseLeave: (e) => {

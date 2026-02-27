@@ -42,7 +42,7 @@ export const useFloatingContext = ({
               enabled: !disable && hoverable,
               handleClose: safePolygon({
                 requireIntent: true,
-                blockPointerEvents: true,
+                blockPointerEvents: false,
                 buffer: 1,
               }),
               ...(hoverable && typeof hoverable === 'object' && hoverable),
@@ -61,6 +61,17 @@ export const useFloatingContext = ({
         open,
         getReferenceProps,
         getFloatingProps,
+        // multi-trigger support: useHover attaches DOM mouseenter listeners via
+        // useEffect. when PopperAnchor switches the reference element on hover,
+        // the mouseenter fires before the listener is attached. this callback
+        // lets PopperAnchor directly trigger open for hoverable popovers.
+        onHoverReference: hoverable
+          ? (event: any) => {
+              if (!open) {
+                floating.context.onOpenChange(true, event, 'hover')
+              }
+            }
+          : undefined,
       }
     },
     [open, setOpen, disable, disableFocus, hoverable]
