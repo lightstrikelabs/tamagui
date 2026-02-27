@@ -536,6 +536,12 @@ export function createAnimations<A extends object>(animations: A): AnimationDriv
           if (rafId !== undefined) cancelAnimationFrame(rafId)
           node.removeEventListener('transitionend', onFinishAnimation)
           node.removeEventListener('transitioncancel', onCancelAnimation)
+          // restore transition: the exit handling sets node.style.transition='none'
+          // directly on the DOM (bypassing React). if exit is interrupted (e.g. same-key
+          // re-entry in AnimatePresence), React won't re-apply its managed transition
+          // value because it hasn't changed in the virtual DOM. clearing the inline
+          // override lets React's value take effect again.
+          node.style.transition = ''
         }
       }, [
         sendExitComplete,
