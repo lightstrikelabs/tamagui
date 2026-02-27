@@ -132,6 +132,8 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
       const [scope, animate] = useAnimate()
       const lastDoAnimate = useRef<Record<string, unknown> | null>(null)
       const controls = useRef<AnimationPlaybackControlsWithThen | null>(null)
+      // track WAAPI fill:forwards animations for popper elements so we can cancel
+      // them before starting new animations (prevents style conflicts)
       const styleKey = JSON.stringify(style)
 
       // exit cycle guards to prevent stale/duplicate completion
@@ -359,6 +361,9 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               // in milliseconds instead of the expected duration.
               if (isCurrentlyExiting && controls.current) {
                 controls.current.stop()
+                // clear pending exit counts since stop() may not reject the finished promise,
+                // which would leave stale counts that prevent exit completion (ghost elements)
+                pendingExitCountsRef.current.clear()
               }
 
               // FIX: Handle animation interruption for position-only animations
@@ -451,6 +456,17 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
                     lastAnimateAt.current = Date.now()
                     lastDontAnimate.current = dontAnimate ? { ...dontAnimate } : {}
                     lastDoAnimate.current = doAnimate ? { ...doAnimate } : {}
+
+                    // commit target to inline on completion (same flash fix)
+                    if (isPopperElement && targetTransform) {
+                      startedControls.finished
+                        .then(() => {
+                          if (node.isConnected) {
+                            node.style.transform = targetTransform
+                          }
+                        })
+                        .catch(() => {})
+                    }
                     return
                   }
                 }
@@ -467,6 +483,29 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
               startedControls = animate(scope.current, fixedDiff, animationOptions)
               controls.current = startedControls
               lastAnimateAt.current = Date.now()
+
+              // FIX: prevent flash when motion.dev removes WAAPI after completion.
+              // motion.dev cancels the WAAPI animation after it finishes, which removes
+              // the animated transform and reveals the stale inline style. By setting
+              // the target as inline in the finished handler (microtask), we ensure the
+              // correct value is in place before the next paint.
+              if (isPopperElement && !isCurrentlyExiting && fixedDiff.transform) {
+                const target =
+                  typeof fixedDiff.transform === 'string'
+                    ? fixedDiff.transform
+                    : Array.isArray(fixedDiff.transform)
+                      ? fixedDiff.transform[fixedDiff.transform.length - 1]
+                      : null
+                if (typeof target === 'string') {
+                  startedControls.finished
+                    .then(() => {
+                      if (node.isConnected) {
+                        node.style.transform = target
+                      }
+                    })
+                    .catch(() => {})
+                }
+              }
             }
           }
 
