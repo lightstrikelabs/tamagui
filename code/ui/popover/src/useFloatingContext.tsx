@@ -1,12 +1,19 @@
 import React from 'react'
 import type { UseFloatingOptions } from '@floating-ui/react'
-import { useFloating, useFocus, useInteractions, useRole } from '@floating-ui/react'
+import {
+  safePolygon,
+  useFloating,
+  useFocus,
+  useHover,
+  useInteractions,
+  useRole,
+} from '@floating-ui/react'
 
 // custom floating context for hoverable popovers.
-// replaces floating-ui's useHover + safePolygon with simple timer-based hover.
-// a close delay (min 100ms) acts as a "safe bridge" between trigger and content,
-// replacing the complex polygon math with something that works just as well.
-// this also natively handles multi-trigger switching and restMs.
+// uses floating-ui's useHover + safePolygon for close handling (geometric safe
+// zone between trigger and content), but handles multi-trigger open/restMs
+// ourselves via onHoverReference since useHover's listeners aren't attached
+// when PopperAnchor switches the reference element mid-hover.
 
 export const useFloatingContext = ({
   open,
@@ -19,14 +26,13 @@ export const useFloatingContext = ({
 
   return React.useCallback(
     (props: UseFloatingOptions) => {
-      const openTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
-      const closeTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+      // tracks whether pointer is currently over any trigger element.
+      // suppresses safePolygon/mouseleave closes during multi-trigger switching.
+      const onTriggerRef = React.useRef(false)
       const restTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
 
       React.useEffect(() => {
         return () => {
-          clearTimeout(openTimerRef.current)
-          clearTimeout(closeTimerRef.current)
           clearTimeout(restTimerRef.current)
         }
       }, [])
@@ -35,6 +41,13 @@ export const useFloatingContext = ({
         ...props,
         open,
         onOpenChange: (val, event) => {
+          if (
+            !val &&
+            onTriggerRef.current &&
+            (event?.type === 'mousemove' || event?.type === 'mouseleave')
+          ) {
+            return
+          }
           const type =
             event?.type === 'mousemove' ||
             event?.type === 'mouseenter' ||
@@ -46,6 +59,19 @@ export const useFloatingContext = ({
       }) as any
 
       const { getReferenceProps, getFloatingProps } = useInteractions([
+        hoverable
+          ? useHover(floating.context, {
+              enabled: !disable && hoverable,
+              handleClose: safePolygon({
+                requireIntent: true,
+                blockPointerEvents: false,
+                buffer: 1,
+              }),
+              ...(hoverable && typeof hoverable === 'object' && hoverable),
+            })
+          : useHover(floating.context, {
+              enabled: false,
+            }),
         useFocus(floating.context, {
           enabled: !disable && !disableFocus,
           visibleOnly: true,
@@ -57,42 +83,19 @@ export const useFloatingContext = ({
       const delay = hoverable && typeof hoverable === 'object' ? hoverable.delay : 0
       const restMs = hoverable && typeof hoverable === 'object' ? hoverable.restMs : 0
       const openDelay = typeof delay === 'number' ? delay : ((delay as any)?.open ?? 0)
-      const closeDelay = typeof delay === 'number' ? delay : ((delay as any)?.close ?? 0)
-      // minimum 100ms close delay acts as safe bridge between trigger and content
-      const effectiveCloseDelay = hoverable ? Math.max(closeDelay, 100) : 0
-
-      const doClose = () => {
-        clearTimeout(openTimerRef.current)
-        clearTimeout(restTimerRef.current)
-        if (effectiveCloseDelay > 0) {
-          closeTimerRef.current = setTimeout(() => {
-            setOpen(false, 'hover')
-          }, effectiveCloseDelay)
-        } else {
-          setOpen(false, 'hover')
-        }
-      }
 
       return {
         ...floating,
         open,
         getReferenceProps,
-        getFloatingProps: hoverable
-          ? (props: any) =>
-              getFloatingProps({
-                ...props,
-                onMouseEnter: () => {
-                  clearTimeout(closeTimerRef.current)
-                },
-                onMouseLeave: () => {
-                  doClose()
-                },
-              })
-          : getFloatingProps,
+        getFloatingProps,
 
+        // multi-trigger open: useHover attaches listeners via useEffect, so they
+        // miss the initial mouseenter when PopperAnchor switches reference mid-hover.
+        // we handle open ourselves here; useHover + safePolygon handle close.
         onHoverReference: hoverable
           ? (_event: any) => {
-              clearTimeout(closeTimerRef.current)
+              onTriggerRef.current = true
               if (open) return
               if (restMs && !openDelay) {
                 clearTimeout(restTimerRef.current)
@@ -100,8 +103,8 @@ export const useFloatingContext = ({
                   setOpen(true, 'hover')
                 }, restMs)
               } else if (openDelay) {
-                clearTimeout(openTimerRef.current)
-                openTimerRef.current = setTimeout(() => {
+                clearTimeout(restTimerRef.current)
+                restTimerRef.current = setTimeout(() => {
                   setOpen(true, 'hover')
                 }, openDelay)
               } else {
@@ -112,7 +115,8 @@ export const useFloatingContext = ({
 
         onLeaveReference: hoverable
           ? () => {
-              doClose()
+              onTriggerRef.current = false
+              clearTimeout(restTimerRef.current)
             }
           : undefined,
       }
