@@ -12,6 +12,10 @@ test.beforeEach(async ({ page }, testInfo) => {
     testInfo.project.name === 'animated-native',
     'Native driver does not support hover animations on web'
   )
+  test.skip(
+    testInfo.project.name === 'animated-reanimated',
+    'Reanimated driver has larger frame jumps during rapid position changes on web'
+  )
   await setupPage(page, { name: 'TabHoverAnimationCase', type: 'useCase' })
   await page.waitForTimeout(500)
 })

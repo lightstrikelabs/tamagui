@@ -97,8 +97,8 @@ test.describe('Dialog Pointer Events Unlock', () => {
     )
     expect(buttonAccessibleEarly).toBeTruthy()
 
-    // wait for dialog to fully close (reanimated driver can be slower)
-    await expect(dialogClose).not.toBeVisible({ timeout: 5000 })
+    // wait for dialog to fully close (reanimated driver can be much slower in CI)
+    await expect(dialogClose).not.toBeVisible({ timeout: 10000 })
 
     // verify background button is clickable
     const backgroundButton = page.getByTestId('background-button')

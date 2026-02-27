@@ -79,7 +79,8 @@ async function measureSheetAnimationDuration(
   )
 
   // Close the sheet for next test
-  await closeButton.click()
+  await closeButton.scrollIntoViewIfNeeded()
+  await closeButton.click({ timeout: 5000 })
   await page.waitForTimeout(600)
 
   return Math.round(duration)
