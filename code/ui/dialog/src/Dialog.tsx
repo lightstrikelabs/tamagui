@@ -329,6 +329,7 @@ const OVERLAY_NAME = 'DialogOverlay'
  */
 export const DialogOverlayFrame = styled(YStack, {
   name: OVERLAY_NAME,
+  zIndex: 1,
 
   variants: {
     open: {
@@ -345,7 +346,6 @@ export const DialogOverlayFrame = styled(YStack, {
         fullscreen: true,
         position: 'absolute',
         backgroundColor: '$background',
-        zIndex: 100_000 - 1,
         pointerEvents: 'auto',
       },
     },
@@ -405,6 +405,7 @@ const CONTENT_NAME = 'DialogContent'
 
 const DialogContentFrame = styled(ThemeableStack, {
   name: CONTENT_NAME,
+  zIndex: 2,
 
   variants: {
     size: {
@@ -422,7 +423,6 @@ const DialogContentFrame = styled(ThemeableStack, {
         padding: '$true',
         borderRadius: '$true',
         elevate: true,
-        zIndex: 100_000,
         // Ensure content receives pointer events (fixes React 19 + display:contents inheritance)
         pointerEvents: 'auto',
       },
