@@ -8,7 +8,6 @@ import {
   createStyledContext,
   getVariableValue,
   styled,
-  useProps,
 } from '@tamagui/core'
 import type {
   Coords,
@@ -567,6 +566,7 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
       enableAnimationForPositionChange,
       children,
       passThrough,
+      unstyled,
       ...rest
     } = props
     const animatePos = animatePosition ?? enableAnimationForPositionChange
@@ -675,6 +675,7 @@ export const PopperContent = React.forwardRef<PopperContentElement, PopperConten
         <PopperContentFrame
           key="popper-content-frame"
           passThrough={passThrough}
+          unstyled={unstyled}
           {...(!passThrough && {
             'data-placement': placement,
             'data-strategy': strategy,
@@ -758,8 +759,7 @@ type Sides = keyof typeof opposites
 export const PopperArrow = React.forwardRef<TamaguiElement, PopperArrowProps>(
   function PopperArrow(propsIn, forwardedRef) {
     const { scope, animatePosition, transition, ...rest } = propsIn
-    const props = useProps(rest)
-    const { offset, size: sizeProp, borderWidth = 0, ...arrowProps } = props
+    const { offset, size: sizeProp, borderWidth = 0, ...arrowProps } = rest
 
     const context = usePopperContext(scope)
 
