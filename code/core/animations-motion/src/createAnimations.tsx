@@ -286,26 +286,16 @@ export function createAnimations<A extends Record<string, AnimationConfig>>(
           }
 
           if (doAnimate) {
-            // going from non-animated to animated in motion -
-            // motion batches things so the above removal can happen a frame before causing flickering
+            // when a property moves from dontAnimate to doAnimate, preserve
+            // the current inline style value so WAAPI starts from the right place
             if (prevDont) {
-              const movedToAnimate: Record<string, unknown> = {}
               for (const key in prevDont) {
                 if (key in doAnimate) {
                   node.style[key] = prevDont[key]
-                  movedToAnimate[key] = prevDont[key]
-                  // Also update lastDoAnimate to include the previous value
-                  // This prevents animating from undefined to the current value
-                  // when a property transitions from dontAnimate to doAnimate
                   if (lastDoAnimate.current) {
                     lastDoAnimate.current[key] = prevDont[key]
                   }
                 }
-              }
-              // Sync motion's internal state for moved properties
-              if (Object.keys(movedToAnimate).length > 0) {
-                const fixed = fixTransparentColors({ ...movedToAnimate }, null, doAnimate)
-                animate(scope.current, fixed, { duration: 0 })
               }
             }
 
