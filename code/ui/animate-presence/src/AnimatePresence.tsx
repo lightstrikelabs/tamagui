@@ -70,6 +70,11 @@ export const AnimatePresence: FunctionComponent<
   const isInitialRender = useRef(true)
 
   /**
+   * Freeze custom prop for exiting children so direction doesn't reverse mid-exit.
+   */
+  const frozenCustomRef = useRef(new Map<ComponentKey, any>())
+
+  /**
    * A ref containing the currently present children. When all exit animations
    * are complete, we use this to re-render with the latest children *committed*
    * rather than the latest children *rendered*.
@@ -119,6 +124,7 @@ export const AnimatePresence: FunctionComponent<
         }
       } else {
         exitComplete.delete(key)
+        frozenCustomRef.current.delete(key)
       }
     }
   }, [renderedChildren, presentKeys.length, presentKeys.join('-')])
@@ -136,6 +142,10 @@ export const AnimatePresence: FunctionComponent<
 
       if (!presentKeys.includes(key)) {
         nextChildren.splice(i, 0, child)
+        // freeze custom at the moment of exit so direction doesn't reverse
+        if (!frozenCustomRef.current.has(key)) {
+          frozenCustomRef.current.set(key, custom)
+        }
       }
     }
 
@@ -191,7 +201,7 @@ export const AnimatePresence: FunctionComponent<
             key={key}
             isPresent={isPresent}
             initial={!isInitialRender.current || initial ? undefined : false}
-            custom={custom}
+            custom={isPresent ? custom : (frozenCustomRef.current.get(key) ?? custom)}
             presenceAffectsLayout={presenceAffectsLayout}
             enterExitVariant={enterExitVariant}
             enterVariant={enterVariant}
