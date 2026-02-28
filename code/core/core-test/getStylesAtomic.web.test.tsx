@@ -98,7 +98,10 @@ describe('flex expansion', () => {
 
   describe('styleCompat: react-native', () => {
     beforeAll(() => {
-      createTamagui({ ...config.getDefaultTamaguiConfig(), settings: { styleCompat: 'react-native' } })
+      createTamagui({
+        ...config.getDefaultTamaguiConfig(),
+        settings: { styleCompat: 'react-native' },
+      })
     })
 
     test('flex: 1 expands with flexShrink: 0', () => {
@@ -109,7 +112,10 @@ describe('flex expansion', () => {
 
   describe('styleCompat: legacy', () => {
     beforeAll(() => {
-      createTamagui({ ...config.getDefaultTamaguiConfig(), settings: { styleCompat: 'legacy' } })
+      createTamagui({
+        ...config.getDefaultTamaguiConfig(),
+        settings: { styleCompat: 'legacy' },
+      })
     })
 
     test('flex: 1 expands with flexShrink: 1 and flexBasis: auto', () => {
