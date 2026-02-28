@@ -4,7 +4,7 @@ import { setupPage } from './test-utils'
 import { getStyles } from './utils'
 
 test.beforeEach(async ({ page }) => {
-  await setupPage(page, { name: 'FlexShrink', type: 'useCase' })
+  await setupPage(page, { name: 'FlexShrinkCase', type: 'useCase' })
 })
 
 test('flex: 1 in column layout does not collapse children', async ({ page }) => {
